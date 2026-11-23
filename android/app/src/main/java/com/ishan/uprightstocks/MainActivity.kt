@@ -236,7 +236,7 @@ private fun UprightStocksApp() {
                             onValueChange = { search = it },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text("Search 2,000+ NSE symbols") }
+                            label = { Text("Search NSE symbols") }
                         )
                         Spacer(Modifier.height(8.dp))
                         if (loading && stocks.isEmpty()) LoadingState()
