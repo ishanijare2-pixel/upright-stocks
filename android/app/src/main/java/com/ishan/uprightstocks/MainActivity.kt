@@ -199,6 +199,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
     val sortedFiltered = when (sortMode) {
         "Price" -> filtered.sortedByDescending { it.price }
         "Change" -> filtered.sortedByDescending { it.changePercent }
+        "Volume" -> filtered.sortedByDescending { it.volume }
         else -> filtered.sortedBy { it.symbol }
     }
     val watchlistStocks = stocks.filter { watchlist.contains(it.symbol) }.sortedBy { it.symbol }
@@ -306,7 +307,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("SORT", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                listOf("Symbol", "Price", "Change").forEach { mode ->
+                                listOf("Symbol", "Price", "Change", "Volume").forEach { mode ->
                                     SortChip(label = mode, selected = sortMode == mode) {
                                         sortMode = mode
                                     }
@@ -372,7 +373,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                         portfolio = (portfolio.filterNot { it.symbol == symbol } + PortfolioHolding(symbol, qty, avg)).sortedBy { it.symbol }
                         savePortfolio(context, portfolio)
                     }, { symbol -> portfolio = portfolio.filterNot { it.symbol == symbol }; savePortfolio(context, portfolio) })
-                    6 -> AlertsScreen(stocks, alerts, { symbol, target, above ->
+                    6 -> AlertsScreen(stocks, alerts, marketDate, { symbol, target, above ->
                         alerts = (alerts.filterNot { it.symbol == symbol } + PriceAlert(symbol, target, above)).sortedBy { it.symbol }
                         saveAlerts(context, alerts)
                     }, { symbol -> alerts = alerts.filterNot { it.symbol == symbol }; saveAlerts(context, alerts) })
@@ -965,40 +966,73 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
 }
 
 @Composable
-private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, onAdd: (String, Double, Boolean) -> Unit, onRemove: (String) -> Unit) {
+private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDate: String, onAdd: (String, Double, Boolean) -> Unit, onRemove: (String) -> Unit) {
     var symbol by remember { mutableStateOf("") }
     var target by remember { mutableStateOf("") }
     var above by remember { mutableStateOf(true) }
+    var validation by remember { mutableStateOf("") }
+    val hitCount = alerts.count { alert ->
+        val current = stocks.find { it.symbol == alert.symbol }?.price
+        current != null && if (alert.above) current >= alert.target else current <= alert.target
+    }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        SectionHeading("PRICE ALERTS", "In-app checks on refreshed closing prices")
-        Text("Not live alerts or push notifications; checked when EOD data is refreshed.", color = Muted, fontSize = 10.sp)
-        OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = target, onValueChange = { target = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Target price ₹") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        SectionHeading("PRICE ALERTS", "Track price levels against NSE closing data")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SortChip("Above", above) { above = true }
-            SortChip("Below", !above) { above = false }
+            MetricCard("TOTAL ALERTS", alerts.size.toString(), Modifier.weight(1f))
+            MetricCard("TRIGGERED", hitCount.toString(), Modifier.weight(1f), if (hitCount > 0) Gain else Mint)
         }
+        Text(if (marketDate.isBlank()) "No market session loaded yet. Refresh the Market tab first." else "Last checked against the " + marketDate + " closing session.", color = Muted, fontSize = 10.sp)
+        Text("In-app checks only—not live alerts, push notifications, or trading signals.", color = Muted, fontSize = 10.sp)
+        OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() }; validation = "" }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = target, onValueChange = { target = it.filter { c -> c.isDigit() || c == '.' }; validation = "" }, label = { Text("Target price ₹") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SortChip("At or above", above) { above = true }
+            SortChip("At or below", !above) { above = false }
+        }
+        if (validation.isNotBlank()) Text(validation, color = Loss, fontSize = 11.sp)
         Button(onClick = {
+            val cleanSymbol = symbol.trim()
             val price = target.toDoubleOrNull() ?: 0.0
-            if (symbol.isNotBlank() && price > 0) { onAdd(symbol, price, above); symbol = ""; target = "" }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Save alert") }
-        alerts.forEach { a ->
-            val price = stocks.find { it.symbol == a.symbol }?.price
-            val hit = price != null && if (a.above) price >= a.target else price <= a.target
+            val known = stocks.any { it.symbol.equals(cleanSymbol, true) }
+            when {
+                cleanSymbol.isBlank() -> validation = "Enter an NSE symbol."
+                !known -> validation = "Symbol not found. Refresh market data and use a listed symbol."
+                !price.isFinite() || price <= 0.0 -> validation = "Enter a valid target price greater than ₹0."
+                else -> { onAdd(cleanSymbol, price, above); symbol = ""; target = ""; validation = "" }
+            }
+        }, modifier = Modifier.fillMaxWidth(), enabled = stocks.isNotEmpty()) { Text("Save / update alert") }
+        Text("SAVED ALERTS", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        if (alerts.isEmpty()) Text("No alerts yet. Add a listed NSE symbol and target price above.", color = Muted, fontSize = 11.sp)
+        alerts.forEach { alert ->
+            val stock = stocks.find { it.symbol == alert.symbol }
+            val price = stock?.price
+            val hit = price != null && if (alert.above) price >= alert.target else price <= alert.target
+            val distance = if (price != null && price > 0.0) ((alert.target - price) / price) * 100.0 else null
             Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(a.symbol, color = White, fontWeight = FontWeight.Bold)
-                        Text("${if (a.above) "Above" else "Below"} ${formatRupees(a.target)}", color = Muted, fontSize = 10.sp)
-                        Text(if (price == null) "Waiting for quote" else if (hit) "Target reached on latest close" else "Latest close ${formatRupees(price)}", color = if (hit) Gain else Muted, fontSize = 10.sp)
+                Column(Modifier.padding(13.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(alert.symbol, color = White, fontWeight = FontWeight.Bold)
+                            Text((if (alert.above) "At or above " else "At or below ") + formatRupees(alert.target), color = Muted, fontSize = 10.sp)
+                        }
+                        Surface(color = (if (hit) Gain else Muted).copy(alpha = 0.14f), shape = RoundedCornerShape(18.dp)) {
+                            Text(if (hit) "TRIGGERED" else if (price == null) "NO QUOTE" else "WAITING", color = if (hit) Gain else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                        }
                     }
-                    Text("Remove", color = Loss, modifier = Modifier.clickable { onRemove(a.symbol) }.padding(6.dp))
+                    Spacer(Modifier.height(7.dp))
+                    if (price == null) Text("No quote in the currently loaded market snapshot.", color = Muted, fontSize = 10.sp)
+                    else {
+                        Text("Latest close  " + formatRupees(price), color = White, fontSize = 11.sp)
+                        Text(if (hit) "Target condition met on the latest close." else "Target is " + String.format(Locale.US, "%.2f", kotlin.math.abs(distance ?: 0.0)) + "% " + (if ((distance ?: 0.0) >= 0) "above" else "below") + " the latest close.", color = if (hit) Gain else Muted, fontSize = 10.sp)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Text("Remove alert", color = Loss, modifier = Modifier.clickable { onRemove(alert.symbol) }.padding(top = 8.dp, start = 8.dp))
+                    }
                 }
             }
         }
     }
 }
-
 @Composable
 private fun SettingsScreen(light: Boolean, toggle: () -> Unit, date: String) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
