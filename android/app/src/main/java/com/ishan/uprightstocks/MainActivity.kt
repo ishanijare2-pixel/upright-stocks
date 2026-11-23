@@ -1252,8 +1252,11 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
             val stock = stocks.find { it.symbol == alert.symbol }
             val price = stock?.price
             val observed = if (alert.kind == "Daily %") stock?.changePercent else price
-            val hit = observed != null && if (alert.above) observed >= alert.target else observed <= -alert.target
-            val distance = if (observed != null) alert.target - kotlin.math.abs(observed) else null
+            val hit = observed != null && if (alert.kind == "Daily %") {
+                if (alert.above) observed >= alert.target else observed <= -alert.target
+            } else {
+                if (alert.above) observed >= alert.target else observed <= alert.target
+            }
             Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(13.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
