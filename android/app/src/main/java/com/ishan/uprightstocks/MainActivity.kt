@@ -101,7 +101,7 @@ data class Stock(
         get() = if (previousClose > 0.0) (change / previousClose) * 100.0 else 0.0
 }
 
-data class PricePoint(val date: String, val close: Double, val open: Double = close, val high: Double = close, val low: Double = close)
+data class PricePoint(val date: String, val close: Double, val open: Double = close, val high: Double = close, val low: Double = close, val volume: Long = 0L)
 data class PortfolioHolding(val symbol: String, val quantity: Double, val averagePrice: Double)
 data class PriceAlert(val symbol: String, val target: Double, val above: Boolean)
 
@@ -274,7 +274,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Panel, RoundedCornerShape(14.dp)).padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    listOf("Market", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings").forEachIndexed { index, title ->
+                    listOf("Market", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings", "Screener", "Research").forEachIndexed { index, title ->
                         Surface(
                             modifier = Modifier.clickable { selectedTab = index },
                             color = if (selectedTab == index) Mint else Color.Transparent,
@@ -365,7 +365,9 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                         alerts = (alerts.filterNot { it.symbol == symbol } + PriceAlert(symbol, target, above)).sortedBy { it.symbol }
                         saveAlerts(context, alerts)
                     }, { symbol -> alerts = alerts.filterNot { it.symbol == symbol }; saveAlerts(context, alerts) })
-                    else -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
+                    7 -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
+                    8 -> ScreenerScreen(stocks, { openStock(it) })
+                    else -> ResearchScreen()
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -586,6 +588,20 @@ private fun StockDetailsScreen(
             }
         }
         Text("${visibleHistory.size} trading sessions shown", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+        Spacer(Modifier.height(18.dp))
+        Text("TECHNICAL INDICATORS", color = Mint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("Calculated from available daily closing prices · educational indicators, not signals", color = Muted, fontSize = 10.sp)
+        val indicatorValues = calculateIndicators(visibleHistory)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricCard("RSI (14)", indicatorValues.rsi?.let { String.format(Locale.US, "%.1f", it) } ?: "—", Modifier.weight(1f))
+            MetricCard("SMA 20", indicatorValues.sma20?.let { formatRupees(it) } ?: "—", Modifier.weight(1f))
+            MetricCard("SMA 50", indicatorValues.sma50?.let { formatRupees(it) } ?: "—", Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricCard("EMA 9", indicatorValues.ema9?.let { formatRupees(it) } ?: "—", Modifier.weight(1f))
+            MetricCard("EMA 21", indicatorValues.ema21?.let { formatRupees(it) } ?: "—", Modifier.weight(1f))
+            MetricCard("MACD", indicatorValues.macd?.let { String.format(Locale.US, "%.2f", it) } ?: "—", Modifier.weight(1f))
+        }
         Spacer(Modifier.height(20.dp))
         Text("SESSION DETAILS", color = Mint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         Spacer(Modifier.height(9.dp))
@@ -600,6 +616,35 @@ private fun StockDetailsScreen(
     }
 }
 
+private data class TechnicalIndicators(
+    val rsi: Double?, val sma20: Double?, val sma50: Double?,
+    val ema9: Double?, val ema21: Double?, val macd: Double?
+)
+
+private fun calculateIndicators(points: List<PricePoint>): TechnicalIndicators {
+    val closes = points.map { it.close }.filter { it > 0.0 }
+    fun sma(period: Int): Double? = if (closes.size >= period) closes.takeLast(period).average() else null
+    fun ema(period: Int): Double? {
+        if (closes.size < period) return null
+        val alpha = 2.0 / (period + 1.0)
+        var value = closes.take(period).average()
+        closes.drop(period).forEach { value = it * alpha + value * (1.0 - alpha) }
+        return value
+    }
+    val rsi = if (closes.size >= 15) {
+        val changes = closes.zipWithNext { a, b -> b - a }.takeLast(14)
+        val gains = changes.filter { it > 0 }.sum() / 14.0
+        val losses = -changes.filter { it < 0 }.sum() / 14.0
+        when {
+            losses == 0.0 && gains > 0.0 -> 100.0
+            losses == 0.0 -> 50.0
+            else -> 100.0 - (100.0 / (1.0 + gains / losses))
+        }
+    } else null
+    return TechnicalIndicators(rsi, sma(20), sma(50), ema(9), ema(21),
+        if (closes.size >= 26) (ema(12) ?: 0.0) - (ema(26) ?: 0.0) else null)
+}
+
 @Composable
 private fun TradingViewChart(points: List<PricePoint>, chartStyle: String) {
     val candleData = remember(points) {
@@ -608,6 +653,16 @@ private fun TradingViewChart(points: List<PricePoint>, chartStyle: String) {
                 if (point.date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
                     put(JSONObject().put("time", point.date).put("open", point.open)
                         .put("high", point.high).put("low", point.low).put("close", point.close))
+                }
+            }
+        }.toString()
+    }
+    val volumeData = remember(points) {
+        org.json.JSONArray().apply {
+            points.forEach { point ->
+                if (point.date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                    put(JSONObject().put("time", point.date).put("value", point.volume)
+                        .put("color", if (point.close >= point.open) "#275F50" else "#713B42"))
                 }
             }
         }.toString()
@@ -621,7 +676,7 @@ private fun TradingViewChart(points: List<PricePoint>, chartStyle: String) {
             }
         }.toString()
     }
-    val html = remember(candleData, lineData, chartStyle) {
+    val html = remember(candleData, lineData, volumeData, chartStyle) {
         """
         <!doctype html>
         <html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -663,6 +718,12 @@ private fun TradingViewChart(points: List<PricePoint>, chartStyle: String) {
               const series = chart.addLineSeries({ color:'#70E0C0', lineWidth:2, priceLineVisible:true });
               series.setData(lines);
             }
+            const volumes = \${volumeData};
+            const volumeSeries = chart.addHistogramSeries({
+              priceFormat: { type: 'volume' }, priceScaleId: '',
+              scaleMargins: { top: 0.82, bottom: 0 }
+            });
+            volumeSeries.setData(volumes);
             chart.timeScale().fitContent();
             new ResizeObserver(() => chart.applyOptions({
               width: document.getElementById('chart').clientWidth,
@@ -837,7 +898,7 @@ private object StockRepository {
                 val high = item.optDouble("high", maxOf(open, close))
                 val low = item.optDouble("low", minOf(open, close))
                 if (close > 0.0 && open > 0.0 && high > 0.0 && low > 0.0) {
-                    add(PricePoint(item.optString("date", ""), close, open, high, low))
+                    add(PricePoint(item.optString("date", ""), close, open, high, low, item.optLong("volume", 0L)))
                 }
             }
         }
@@ -1181,6 +1242,65 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
         }
     }
 }
+@Composable
+private fun ScreenerScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var direction by remember { mutableStateOf("All") }
+    var minVolume by remember { mutableStateOf("0") }
+    var sort by remember { mutableStateOf("Change") }
+    val volumeFloor = minVolume.toLongOrNull() ?: 0L
+    val results = stocks.filter { stock ->
+        (stock.symbol.contains(query, true) || stock.company.contains(query, true)) &&
+        stock.volume >= volumeFloor &&
+        when (direction) { "Gainers" -> stock.changePercent > 0; "Losers" -> stock.changePercent < 0; else -> true }
+    }.let { list -> when(sort) {
+        "Price" -> list.sortedByDescending { it.price }
+        "Volume" -> list.sortedByDescending { it.volume }
+        "Symbol" -> list.sortedBy { it.symbol }
+        else -> list.sortedByDescending { it.changePercent }
+    } }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        SectionHeading("STOCK SCREENER", "Filter the currently loaded NSE equity snapshot")
+        OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Company or symbol") })
+        OutlinedTextField(minVolume, { minVolume = it.filter(Char::isDigit) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Minimum daily volume") })
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("All", "Gainers", "Losers").forEach { SortChip(it, direction == it) { direction = it } }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("Change", "Price", "Volume", "Symbol").forEach { SortChip(it, sort == it) { sort = it } }
+        }
+        Text("\${results.size} matching stocks · latest EOD snapshot", color = Muted, fontSize = 10.sp)
+        results.take(150).forEach { stock -> StockCard(stock, false, { onOpen(stock) }, {}) }
+        if (results.isEmpty()) Text("No stocks match these filters. Try a lower volume threshold.", color = Muted, fontSize = 11.sp)
+        if (results.size > 150) Text("Showing first 150 results. Narrow your filters to see more.", color = Muted, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun ResearchScreen() {
+    var symbol by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeading("RESEARCH CENTRE", "Company fundamentals and market news")
+        OutlinedTextField(symbol, { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } },
+            modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search NSE company") })
+        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("COMPANY FUNDAMENTALS", color = Mint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text("P/E, P/B, EPS, dividends, quarterly revenue and profit will appear here when a verified fundamentals provider is connected.", color = White, fontSize = 12.sp)
+                Text("Status: Provider not configured · no financial ratios are fabricated.", color = Muted, fontSize = 10.sp)
+            }
+        }
+        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("MARKET & COMPANY NEWS", color = Mint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text("Verified headlines, publisher names, timestamps and source links will appear here after a news provider is connected.", color = White, fontSize = 12.sp)
+                Text("Status: News feed not connected · no placeholder headlines.", color = Muted, fontSize = 10.sp)
+            }
+        }
+        Text("For public distribution, fundamentals and news sources must grant the appropriate display and redistribution rights.", color = Muted, fontSize = 10.sp)
+    }
+}
+
 @Composable
 private fun SettingsScreen(light: Boolean, toggle: () -> Unit, date: String) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
