@@ -255,6 +255,7 @@ private fun UprightStocksApp() {
                     }
                     1 -> {
                         if (stocks.isEmpty() && loading) LoadingState()
+                        else if (stocks.isEmpty()) EmptyState(message, onRetry = { refresh() })
                         else if (watchlistStocks.isEmpty()) {
                             EmptyState("Your watchlist is empty. Open Market and tap a stock to view it, then add it to your watchlist.")
                         } else {
@@ -482,8 +483,7 @@ private object StockRepository {
                             val series = item.optString("series", "")
                             val symbol = item.optString("symbol", "").trim()
                             val close = item.optDouble("close", 0.0)
-                            val last = item.optDouble("last", 0.0)
-                            val price = if (last > 0.0) last else close
+                            val price = close
                             val previous = item.optDouble("prev_close", 0.0)
                             if (series == "EQ" && symbol.isNotBlank() && price > 0.0 && previous > 0.0) {
                                 parsed.add(
