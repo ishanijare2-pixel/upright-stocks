@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -385,7 +387,7 @@ private fun StockDetailsScreen(
     onToggleWatchlist: () -> Unit
 ) {
     val movementColor = if (stock.change >= 0) Gain else Loss
-    Column(modifier = Modifier.fillMaxSize().background(Navy).padding(18.dp)) {
+    Column(modifier = Modifier.fillMaxSize().background(Navy).verticalScroll(rememberScrollState()).padding(18.dp)) {
         Text("‹  BACK TO MARKET", color = Mint, fontSize = 12.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onBack).padding(vertical = 8.dp))
         Spacer(Modifier.height(14.dp))
