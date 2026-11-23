@@ -1308,7 +1308,9 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
                     Spacer(Modifier.height(7.dp))
                     if (stock == null) Text("No quote in the currently loaded market snapshot.", color = Muted, fontSize = 10.sp)
                     else {
-                        Text("Latest close ${formatRupees(stock.price)} · daily move ${String.format(Locale.US, "%+.2f%%", stock.changePercent)} · volume ${String.format(Locale.US, "%,d", stock.volume)}",
+                        val dailyMoveLabel = String.format(Locale.US, "%+.2f%%", stock.changePercent)
+                        val volumeLabel = String.format(Locale.US, "%,d", stock.volume)
+                        Text("Latest close ${formatRupees(stock.price)} · daily move $dailyMoveLabel · volume $volumeLabel",
                             color = White, fontSize = 10.sp)
                         if (noHistory) Text("Historical OHLCV data is not available to evaluate this condition.", color = Muted, fontSize = 10.sp)
                         else Text(if (hit) "Condition met on the latest EOD snapshot." else "Condition not met on the latest EOD snapshot.",
