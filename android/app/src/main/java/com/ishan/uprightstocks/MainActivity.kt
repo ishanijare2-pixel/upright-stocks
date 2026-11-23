@@ -222,11 +222,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 15.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(color = Mint.copy(alpha = 0.14f), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(46.dp)) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("U", color = Mint, fontSize = 25.sp, fontWeight = FontWeight.Black)
-                        }
-                    }
+                    UprightLogo(Modifier.size(48.dp))
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
                         Text("UPRIGHT STOCKS", color = White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
@@ -387,6 +383,41 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                 Text("Data: TejHQ, sourced from NSE bhavcopy", color = Muted, fontSize = 9.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun UprightLogo(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        drawRoundRect(color = Color(0xFF102A2B), size = size,
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.24f))
+        drawRoundRect(color = Color(0xFF70E0C0),
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.18f, h * 0.62f),
+            size = androidx.compose.ui.geometry.Size(w * 0.13f, h * 0.24f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.035f))
+        drawRoundRect(color = Color(0xFF70E0C0),
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.40f, h * 0.47f),
+            size = androidx.compose.ui.geometry.Size(w * 0.13f, h * 0.39f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.035f))
+        drawRoundRect(color = Color(0xFF70E0C0),
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.32f),
+            size = androidx.compose.ui.geometry.Size(w * 0.13f, h * 0.54f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.035f))
+        val trend = Path().apply {
+            moveTo(w * 0.17f, h * 0.45f)
+            lineTo(w * 0.39f, h * 0.31f)
+            lineTo(w * 0.56f, h * 0.37f)
+            lineTo(w * 0.82f, h * 0.14f)
+        }
+        drawPath(trend, Color(0xFFF3FAF8), style = Stroke(width = w * 0.075f, cap = StrokeCap.Round))
+        val arrow = Path().apply {
+            moveTo(w * 0.66f, h * 0.14f)
+            lineTo(w * 0.82f, h * 0.14f)
+            lineTo(w * 0.82f, h * 0.30f)
+        }
+        drawPath(arrow, Color(0xFFF3FAF8), style = Stroke(width = w * 0.075f, cap = StrokeCap.Round))
     }
 }
 
