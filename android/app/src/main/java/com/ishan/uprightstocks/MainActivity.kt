@@ -476,34 +476,58 @@ private object StockRepository {
             if (day != Calendar.SATURDAY && day != Calendar.SUNDAY) {
                 val date = formatter.format(calendar.time)
                 try {
-                    val root = getJson("$BASE_URL/v1/snapshot/nse?date=$date")
-                    val rows = root.optJSONArray("data")
-                    if (rows != null && rows.length() > 0) {
-                        val parsed = ArrayList<Stock>(rows.length())
+                    // Snapshot responses may be paginated. Collect every page so the
+                    // market screen does not silently show only the first batch.
+                    val allStocks = linkedMapOf<String, Stock>()
+                    var offset = 0
+                    var pageCount = 0
+                    var hasSnapshot = false
+
+                    while (pageCount < 30) {
+                        val root = getJson(
+                            "$BASE_URL/v1/snapshot/nse?date=$date&limit=200&offset=$offset"
+                        )
+                        val rows = root.optJSONArray("data") ?: break
+                        if (rows.length() == 0) break
+                        hasSnapshot = true
+                        val beforePage = allStocks.size
+
                         for (index in 0 until rows.length()) {
                             val item = rows.optJSONObject(index) ?: continue
                             val series = item.optString("series", "")
                             val symbol = item.optString("symbol", "").trim()
                             val close = item.optDouble("close", 0.0)
-                            val price = close
                             val previous = item.optDouble("prev_close", 0.0)
-                            if (series == "EQ" && symbol.isNotBlank() && price > 0.0 && previous > 0.0) {
-                                parsed.add(
-                                    Stock(
-                                        symbol = symbol,
-                                        company = item.optString("name", symbol).ifBlank { symbol },
-                                        price = price,
-                                        previousClose = previous,
-                                        open = item.optDouble("open", 0.0),
-                                        high = item.optDouble("high", 0.0),
-                                        low = item.optDouble("low", 0.0),
-                                        volume = item.optLong("volume", 0L),
-                                        date = date
-                                    )
+                            if (series == "EQ" && symbol.isNotBlank() && close > 0.0 && previous > 0.0) {
+                                allStocks[symbol] = Stock(
+                                    symbol = symbol,
+                                    company = item.optString("name", symbol).ifBlank { symbol },
+                                    price = close,
+                                    previousClose = previous,
+                                    open = item.optDouble("open", 0.0),
+                                    high = item.optDouble("high", 0.0),
+                                    low = item.optDouble("low", 0.0),
+                                    volume = item.optLong("volume", 0L),
+                                    date = date
                                 )
                             }
                         }
-                        if (parsed.isNotEmpty()) return@withContext parsed.sortedBy { it.symbol } to date
+
+                        pageCount++
+                        // Stop safely if the server ignores pagination or repeats a page.
+                        if (allStocks.size == beforePage) break
+                        val nextOffset = root.optJSONObject("meta")?.optInt("next_offset", -1) ?: -1
+                        if (nextOffset > offset) {
+                            offset = nextOffset
+                        } else if (rows.length() >= 200) {
+                            offset += rows.length()
+                        } else {
+                            break
+                        }
+                    }
+
+                    if (hasSnapshot && allStocks.isNotEmpty()) {
+                        return@withContext allStocks.values.sortedBy { it.symbol } to date
                     }
                 } catch (error: Exception) {
                     lastError = error.message ?: lastError
