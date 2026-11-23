@@ -889,41 +889,78 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
     var symbol by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var average by remember { mutableStateOf("") }
+    var validation by remember { mutableStateOf("") }
     val value = holdings.sumOf { h -> (stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice) * h.quantity }
     val cost = holdings.sumOf { it.averagePrice * it.quantity }
     val pnl = value - cost
+    val pnlPercent = if (cost > 0.0) pnl / cost * 100.0 else 0.0
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         SectionHeading("SIMULATED PORTFOLIO", "Practice tracker · no broker connection or real trades")
         Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp)) {
-                Text("Estimated value", color = Muted, fontSize = 10.sp)
-                Text(formatRupees(value), color = White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Text("P/L ${String.format(Locale.US, "%+.2f", pnl)}", color = if (pnl >= 0) Gain else Loss, fontWeight = FontWeight.Bold)
+                Text("Estimated portfolio value", color = Muted, fontSize = 10.sp)
+                Text(formatRupees(value), color = White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                Text("Invested amount  ${formatRupees(cost)}", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("Total P/L  ${String.format(Locale.US, "%+.2f", pnl)}  (${String.format(Locale.US, "%+.2f%%", pnlPercent)})",
+                    color = if (pnl >= 0) Gain else Loss, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
-        OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() || c == '-' || c == '&' } }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text("ADD / UPDATE HOLDING", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } ; validation = "" }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = qty, onValueChange = { qty = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Quantity") }, singleLine = true, modifier = Modifier.weight(1f))
             OutlinedTextField(value = average, onValueChange = { average = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Average buy ₹") }, singleLine = true, modifier = Modifier.weight(1f))
         }
+        if (validation.isNotBlank()) Text(validation, color = Loss, fontSize = 11.sp)
         Button(onClick = {
             val q = qty.toDoubleOrNull() ?: 0.0
             val p = average.toDoubleOrNull() ?: 0.0
-            if (symbol.isNotBlank() && q > 0 && p > 0) { onAdd(symbol, q, p); symbol = ""; qty = "1"; average = "" }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Save simulated holding") }
+            val knownStock = stocks.any { it.symbol.equals(symbol.trim(), true) }
+            when {
+                symbol.isBlank() -> validation = "Enter a stock symbol."
+                !knownStock -> validation = "Symbol not found in the loaded NSE stock list. Refresh market data first."
+                q <= 0.0 || !q.isFinite() -> validation = "Enter a valid quantity greater than zero."
+                p <= 0.0 || !p.isFinite() -> validation = "Enter a valid average buy price."
+                else -> { onAdd(symbol.trim(), q, p); symbol = ""; qty = "1"; average = ""; validation = "" }
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Save / update holding") }
+        Text("YOUR HOLDINGS", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        if (holdings.isEmpty()) Text("No holdings yet. Add a symbol from the loaded NSE list above.", color = Muted, fontSize = 11.sp)
         holdings.forEach { h ->
-            val current = stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice
+            val stock = stocks.find { it.symbol == h.symbol }
+            val current = stock?.price ?: h.averagePrice
+            val holdingValue = current * h.quantity
+            val invested = h.averagePrice * h.quantity
+            val holdingPnl = holdingValue - invested
+            val holdingPercent = if (invested > 0.0) holdingPnl / invested * 100.0 else 0.0
             Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(h.symbol, color = White, fontWeight = FontWeight.Bold)
-                        Text("${h.quantity} shares · value ${formatRupees(current * h.quantity)}", color = Muted, fontSize = 10.sp)
+                Column(Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(h.symbol, color = White, fontWeight = FontWeight.Bold)
+                            Text("${h.quantity} shares · avg cost ${formatRupees(h.averagePrice)}", color = Muted, fontSize = 10.sp)
+                        }
+                        Text("Remove", color = Loss, modifier = Modifier.clickable { onRemove(h.symbol) }.padding(6.dp))
                     }
-                    Text("Remove", color = Loss, modifier = Modifier.clickable { onRemove(h.symbol) }.padding(6.dp))
+                    Spacer(Modifier.height(7.dp))
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            Text("CURRENT VALUE", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Text(formatRupees(holdingValue), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("UNREALISED P/L", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Text(String.format(Locale.US, "%+.2f (%+.2f%%)", holdingPnl, holdingPercent),
+                                color = if (holdingPnl >= 0) Gain else Loss, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (stock == null) Text("No current quote; value is estimated using average cost.", color = Muted, fontSize = 9.sp, modifier = Modifier.padding(top = 5.dp))
                 }
             }
         }
-        Text("Educational record-keeping only. No orders or investment recommendations.", color = Muted, fontSize = 10.sp)
+        Text("Educational record-keeping only. Values use latest available closing prices, not live quotes. No orders or investment recommendations.",
+            color = Muted, fontSize = 10.sp)
     }
 }
 
