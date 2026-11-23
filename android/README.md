@@ -1,89 +1,49 @@
-# Upright Stocks — Native Android (Kotlin)
+# Upright Stocks — Native Android Kotlin
 
-This folder contains the native Android app. The existing web app at the repository root is left unchanged.
+The Android app is built with Kotlin and Jetpack Compose. It is built by GitHub Actions; Android Studio and Codespaces are not required.
 
-## 1. Open this branch in Codespaces
+## Features
 
-Open the repository, select the `kotlin-native` branch, then choose **Code → Codespaces → Create codespace on kotlin-native**.
+- NSE equity market overview using the latest available end-of-day snapshot
+- Search by NSE trading symbol or company name
+- Device-stored watchlist
+- Top gainers and losers for the latest available session
+- Stock detail page with OHLC, previous close, volume and a 90-day closing-price chart
+- Manual refresh
+- Deep teal and mint interface
 
-## 2. Install the Android build tools
+## Build the APK
 
-Run these commands in the Codespaces terminal:
+1. Open the repository's Actions tab.
+2. Select **Build Upright Stocks APK**.
+3. Select the kotlin-native branch and choose **Run workflow**.
+4. Wait for the run to finish successfully.
+5. Download the upright-stocks-debug-apk artifact and extract app-debug.apk.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y openjdk-17-jdk unzip wget
-```
+The APK is generated at android/app/build/outputs/apk/debug/app-debug.apk.
 
-Download Gradle 8.13 and add it to this Codespace session:
+## Market data
 
-```bash
-cd /workspaces/upright-stocks/android
-wget -q https://services.gradle.org/distributions/gradle-8.13-bin.zip
-unzip -q gradle-8.13-bin.zip -d "$HOME"
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-export PATH="$HOME/gradle-8.13/bin:$PATH"
-gradle --version
-```
+The app reads the keyless end-of-day REST endpoints from TejHQ:
 
-Install Android command-line tools from Google's official download page:
-https://developer.android.com/studio#command-line-tools-only
+- Latest available NSE market snapshot: GET /v1/snapshot/nse?date=YYYY-MM-DD
+- Individual stock history: GET /v1/ohlcv/nse/{SYMBOL}?from=YYYY-MM-DD&to=YYYY-MM-DD
 
-After downloading the Linux command-line tools ZIP in the Codespace, place it in this folder as `commandlinetools-linux.zip`, then run:
+The app checks recent weekdays to find the latest published trading-day snapshot. The source is NSE daily bhavcopy data republished by TejHQ. This is end-of-day data, not live or intraday quotes, and is generally ready by the next morning IST.
 
-```bash
-mkdir -p "$HOME/android-sdk/cmdline-tools"
-unzip -q commandlinetools-linux.zip -d "$HOME/android-sdk/cmdline-tools"
-mv "$HOME/android-sdk/cmdline-tools/cmdline-tools" "$HOME/android-sdk/cmdline-tools/latest"
-export ANDROID_HOME="$HOME/android-sdk"
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-yes | sdkmanager --licenses
-sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-```
+Data source documentation: https://tejhq.dev/docs
 
-## 3. Generate the Gradle wrapper and build
+## Important data-use limits
 
-Still inside the `android` folder:
+This configuration is for one person's private, personal-use dashboard. TejHQ's published data terms say use inside an app or service for other people, a business, or public users is commercial use and requires its Pro plan; exchange display and redistribution rules may also apply. Do not publish this app or distribute market data to other people without first obtaining the necessary permissions and licences.
 
-```bash
-gradle wrapper --gradle-version 8.13
-./gradlew assembleDebug
-```
+Data is provided as-is and is not investment advice. Historical prices are unadjusted and may not reflect later splits or bonuses.
 
-The APK will be created at:
+## Technical details
 
-```
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-Use the Codespaces file explorer to download that APK, then transfer it to your Android phone for installation. You do not need Android Studio or a local Android SDK.
-
-## 4. Market-data connection
-
-The Compose dashboard and HTTP client are included. The app deliberately does not display invented or unofficial prices. Before automatic NSE prices can appear, configure a backend that is authorized to supply NSE market data for display in an Android app.
-
-The app expects this backend endpoint:
-
-`GET https://YOUR-BACKEND.example.com/api/stocks`
-
-Expected JSON:
-
-```json
-{
-  "asOf": "2026-11-23T10:30:00+05:30",
-  "stocks": [
-    {
-      "symbol": "RELIANCE",
-      "company": "Reliance Industries",
-      "price": 1450.25,
-      "change": 12.4,
-      "changePercent": 0.86
-    }
-  ]
-}
-```
-
-Once the backend is deployed, replace the placeholder `API_BASE_URL` in `app/build.gradle.kts` with its base URL and rebuild.
-
-**Security:** Never put the market-data provider's API key in the Android app. Store it on the backend as a server-side secret. Confirm that the provider's licence permits displaying the data in your app.
+- Package: com.ishan.uprightstocks
+- Minimum Android version: Android 7.0 (API 24)
+- Compile/target SDK: 36
+- Java: 17
+- Build: GitHub Actions
+- Data is fetched directly over HTTPS; no API key is embedded in the APK.
