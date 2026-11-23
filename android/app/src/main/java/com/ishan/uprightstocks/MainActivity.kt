@@ -77,6 +77,7 @@ private val White: Color get() = if (LightThemeState.value) Color(0xFF152D28) el
 
 private const val PREFS_NAME = "upright_stocks"
 private const val WATCHLIST_KEY = "watchlist"
+private const val WATCHLISTS_KEY = "watchlists"
 private const val PORTFOLIO_KEY = "portfolio"
 private const val ALERTS_KEY = "alerts"
 private const val THEME_KEY = "light_theme"
@@ -134,7 +135,9 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var stocks by remember { mutableStateOf(emptyList<Stock>()) }
-    var watchlist by remember { mutableStateOf(loadWatchlist(context)) }
+    var watchlists by remember { mutableStateOf(loadWatchlists(context)) }
+    var activeWatchlist by remember { mutableStateOf("Main") }
+    var watchlist by remember { mutableStateOf(watchlists["Main"] ?: loadWatchlist(context)) }
     var portfolio by remember { mutableStateOf(loadPortfolio(context)) }
     var alerts by remember { mutableStateOf(loadAlerts(context)) }
     var changeFilter by remember { mutableStateOf("All") }
@@ -182,7 +185,23 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
 
     fun toggleWatchlist(symbol: String) {
         watchlist = if (watchlist.contains(symbol)) watchlist - symbol else watchlist + symbol
+        watchlists = watchlists + (activeWatchlist to watchlist)
+        saveWatchlists(context, watchlists)
         saveWatchlist(context, watchlist)
+    }
+
+    fun selectWatchlist(name: String) {
+        activeWatchlist = name
+        watchlist = watchlists[name] ?: emptySet()
+    }
+
+    fun createWatchlist(name: String) {
+        val clean = name.trim().take(24)
+        if (clean.isNotBlank() && !watchlists.containsKey(clean)) {
+            watchlists = watchlists + (clean to emptySet())
+            saveWatchlists(context, watchlists)
+            selectWatchlist(clean)
+        }
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -324,20 +343,16 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                             }
                         }
                     }
-                    1 -> {
-                        if (stocks.isEmpty() && loading) LoadingState()
-                        else if (stocks.isEmpty()) EmptyState(message, onRetry = { refresh() })
-                        else if (watchlistStocks.isEmpty()) {
-                            EmptyState("Your watchlist is empty. Open Market and tap a stock to view it, then add it to your watchlist.")
-                        } else {
-                            Text("${watchlistStocks.size} saved symbols · stored on this device", color = Muted, fontSize = 11.sp)
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                watchlistStocks.forEach { stock ->
-                                    StockCard(stock = stock, isWatched = true, onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
-                                }
-                            }
-                        }
-                    }
+                    1 -> WatchlistsScreen(
+                        stocks = stocks,
+                        watchlist = watchlist,
+                        names = watchlists.keys.sorted(),
+                        activeName = activeWatchlist,
+                        onSelect = { selectWatchlist(it) },
+                        onCreate = { createWatchlist(it) },
+                        onOpen = { openStock(it) },
+                        onToggle = { toggleWatchlist(it) }
+                    )
                     2 -> {
                         if (stocks.isEmpty() && loading) LoadingState()
                         else if (stocks.isEmpty()) EmptyState(message, onRetry = { refresh() })
@@ -1116,6 +1131,19 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
                     color = if (pnl >= 0) Gain else Loss, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
+        Text("PORTFOLIO ALLOCATION", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        if (holdings.isEmpty()) Text("Allocation will appear when you add holdings.", color = Muted, fontSize = 10.sp)
+        holdings.sortedByDescending { h -> (stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice) * h.quantity }.forEach { h ->
+            val currentValue = (stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice) * h.quantity
+            val allocationPercent = if (value > 0.0) currentValue / value else 0.0
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(h.symbol, color = White, fontSize = 10.sp, modifier = Modifier.width(90.dp))
+                Box(Modifier.weight(1f).height(8.dp).background(PanelLight, RoundedCornerShape(8.dp))) {
+                    Box(Modifier.fillMaxWidth(allocationPercent.toFloat().coerceIn(0f, 1f)).height(8.dp).background(Mint, RoundedCornerShape(8.dp)))
+                }
+                Text(String.format(Locale.US, "%.1f%%", allocationPercent * 100.0), color = Muted, fontSize = 10.sp)
+            }
+        }
         Text("ADD / UPDATE HOLDING", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } ; validation = "" }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1243,6 +1271,35 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
     }
 }
 @Composable
+private fun WatchlistsScreen(
+    stocks: List<Stock>,
+    watchlist: Set<String>,
+    names: List<String>,
+    activeName: String,
+    onSelect: (String) -> Unit,
+    onCreate: (String) -> Unit,
+    onOpen: (Stock) -> Unit,
+    onToggle: (String) -> Unit
+) {
+    var newName by remember { mutableStateOf("") }
+    val listStocks = stocks.filter { watchlist.contains(it.symbol) }.sortedBy { it.symbol }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        SectionHeading("MY WATCHLISTS", "Create separate lists for companies you follow")
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            names.forEach { name -> SortChip(name, activeName == name) { onSelect(name) } }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(newName, { newName = it }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("New watchlist name") })
+            Button(onClick = { onCreate(newName); newName = "" }, enabled = newName.isNotBlank() && !names.contains(newName.trim())) { Text("Create") }
+        }
+        Text("\${activeName} · \${listStocks.size} saved stocks · stored on this device", color = Muted, fontSize = 10.sp)
+        if (stocks.isEmpty()) Text("Load market data to show current watchlist prices.", color = Muted, fontSize = 11.sp)
+        else if (listStocks.isEmpty()) Text("This list is empty. Open Market and tap the star beside a stock to add it.", color = Muted, fontSize = 11.sp)
+        listStocks.forEach { stock -> StockCard(stock, true, { onOpen(stock) }, { onToggle(stock.symbol) }) }
+    }
+}
+
+@Composable
 private fun ScreenerScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
     var query by remember { mutableStateOf("") }
     var direction by remember { mutableStateOf("All") }
@@ -1323,6 +1380,37 @@ private fun SettingsScreen(light: Boolean, toggle: () -> Unit, date: String) {
         }
         Text("Educational market-data viewer. No broker connection or trade execution.", color = Muted, fontSize = 10.sp)
     }
+}
+
+private fun loadWatchlists(context: Context): Map<String, Set<String>> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val raw = prefs.getString(WATCHLISTS_KEY, null)
+    if (raw.isNullOrBlank()) return mapOf("Main" to loadWatchlist(context))
+    return try {
+        val root = JSONObject(raw)
+        buildMap {
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val array = root.optJSONArray(key) ?: continue
+                val symbols = buildSet {
+                    for (i in 0 until array.length()) array.optString(i).takeIf { it.isNotBlank() }?.let { add(it) }
+                }
+                put(key, symbols)
+            }
+        }.ifEmpty { mapOf("Main" to loadWatchlist(context)) }
+    } catch (_: Exception) { mapOf("Main" to loadWatchlist(context)) }
+}
+
+private fun saveWatchlists(context: Context, lists: Map<String, Set<String>>) {
+    val root = JSONObject()
+    lists.forEach { (name, symbols) ->
+        val array = org.json.JSONArray()
+        symbols.sorted().forEach { array.put(it) }
+        root.put(name, array)
+    }
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+        .putString(WATCHLISTS_KEY, root.toString()).apply()
 }
 
 private fun loadPortfolio(context: Context): List<PortfolioHolding> {
