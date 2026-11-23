@@ -269,7 +269,7 @@ private fun UprightStocksApp() {
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(sortedFiltered, key = { it.symbol }) { stock ->
-                                    StockCard(stock = stock, onClick = { openStock(stock) })
+                                    StockCard(stock = stock, isWatched = watchlist.contains(stock.symbol), onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                             }
                         }
@@ -354,7 +354,7 @@ private fun MetricCard(label: String, value: String, modifier: Modifier, valueCo
 }
 
 @Composable
-private fun StockCard(stock: Stock, onClick: () -> Unit) {
+private fun StockCard(stock: Stock, isWatched: Boolean, onClick: () -> Unit, onToggleWatchlist: () -> Unit) {
     val movementColor = if (stock.change >= 0) Gain else Loss
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -374,6 +374,16 @@ private fun StockCard(stock: Stock, onClick: () -> Unit) {
                 Text(formatRupees(stock.price), color = White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(String.format(Locale.US, "%+.2f%%", stock.changePercent), color = movementColor,
                     fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(7.dp))
+            Surface(
+                modifier = Modifier.size(34.dp).clickable(onClick = onToggleWatchlist),
+                color = if (isWatched) Mint.copy(alpha = 0.16f) else PanelLight,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(if (isWatched) "★" else "☆", color = if (isWatched) Mint else Muted, fontSize = 19.sp)
+                }
             }
         }
     }
