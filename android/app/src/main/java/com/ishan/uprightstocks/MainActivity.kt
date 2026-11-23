@@ -338,7 +338,7 @@ private fun UprightStocksApp() {
                                     SectionHeading("TOP LOSERS", "Biggest percentage falls in the latest session")
                                 }
                                 items(losers, key = { "l-${it.symbol}" }) { stock ->
-                                    StockCard(stock = stock, onClick = { openStock(stock) })
+                                    StockCard(stock = stock, isWatched = watchlist.contains(stock.symbol), onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                             }
                         }
