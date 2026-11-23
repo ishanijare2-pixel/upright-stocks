@@ -198,45 +198,75 @@ private fun UprightStocksApp() {
                 modifier = Modifier.fillMaxSize().background(Navy).padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("UPRIGHT", color = Mint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text("Stocks", color = White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                        Text("INDIAN EQUITY MARKET", color = Muted, fontSize = 10.sp, letterSpacing = 1.4.sp)
+                    Surface(color = Mint.copy(alpha = 0.14f), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(46.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("U", color = Mint, fontSize = 25.sp, fontWeight = FontWeight.Black)
+                        }
                     }
-                    Button(onClick = { refresh() }, enabled = !loading) {
-                        Text(if (loading) "Loading…" else "Refresh")
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("UPRIGHT STOCKS", color = White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
+                        Text("INDIAN EQUITY MARKET", color = Muted, fontSize = 9.sp, letterSpacing = 1.3.sp)
+                    }
+                    Surface(
+                        modifier = Modifier.clickable(enabled = !loading, onClick = { refresh() }),
+                        color = PanelLight, shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (loading) "…" else "↻", color = Mint, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(5.dp))
+                            Text(if (loading) "Loading" else "Refresh", color = White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
+                Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("MARKET OVERVIEW", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                                Text(if (marketDate.isBlank()) "Your market at a glance" else "NSE closing session", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Surface(color = Mint.copy(alpha = 0.13f), shape = RoundedCornerShape(20.dp)) {
+                                Text("● EOD", color = Mint, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MetricCard("NSE STOCKS", if (stocks.isEmpty()) "—" else stocks.size.toString(), Modifier.weight(1f))
+                            MetricCard("ADVANCERS", if (stocks.isEmpty()) "—" else advancers.toString(), Modifier.weight(1f), Gain)
+                            MetricCard("DECLINERS", if (stocks.isEmpty()) "—" else decliners.toString(), Modifier.weight(1f), Loss)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            if (marketDate.isBlank()) "Waiting for latest available trading day" else "NSE CLOSE  ·  $marketDate",
+                            color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp
+                        )
+                        Text(message, color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    MetricCard("NSE STOCKS", if (stocks.isEmpty()) "—" else stocks.size.toString(), Modifier.weight(1f))
-                    MetricCard("ADVANCERS", if (stocks.isEmpty()) "—" else advancers.toString(), Modifier.weight(1f), Gain)
-                    MetricCard("DECLINERS", if (stocks.isEmpty()) "—" else decliners.toString(), Modifier.weight(1f), Loss)
-                }
-
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    if (marketDate.isBlank()) "MARKET DATE · WAITING FOR DATA" else "NSE CLOSE · $marketDate",
-                    color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
-                )
-                Text(message, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
-
-                TabRow(selectedTabIndex = selectedTab, containerColor = Navy, contentColor = Mint) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(14.dp)).padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
                     listOf("Market", "Watchlist", "Movers").forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title, fontWeight = FontWeight.SemiBold) }
-                        )
+                        Surface(
+                            modifier = Modifier.weight(1f).clickable { selectedTab = index },
+                            color = if (selectedTab == index) Mint else Color.Transparent,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(title, color = if (selectedTab == index) Navy else Muted,
+                                fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 10.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
                     }
                 }
-
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 when (selectedTab) {
                     0 -> {
                         OutlinedTextField(
@@ -280,13 +310,13 @@ private fun UprightStocksApp() {
                         else if (watchlistStocks.isEmpty()) {
                             EmptyState("Your watchlist is empty. Open Market and tap a stock to view it, then add it to your watchlist.")
                         } else {
-                            Text("\${watchlistStocks.size} saved symbols · stored on this device", color = Muted, fontSize = 11.sp)
+                            Text("${watchlistStocks.size} saved symbols · stored on this device", color = Muted, fontSize = 11.sp)
                             LazyColumn(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(watchlistStocks, key = { it.symbol }) { stock ->
-                                    StockCard(stock = stock, onClick = { openStock(stock) })
+                                    StockCard(stock = stock, isWatched = true, onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                             }
                         }
@@ -300,14 +330,14 @@ private fun UprightStocksApp() {
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 item { SectionHeading("TOP GAINERS", "Biggest percentage rises in the latest session") }
-                                items(gainers, key = { "g-\${it.symbol}" }) { stock ->
-                                    StockCard(stock = stock, onClick = { openStock(stock) })
+                                items(gainers, key = { "g-${it.symbol}" }) { stock ->
+                                    StockCard(stock = stock, isWatched = watchlist.contains(stock.symbol), onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                                 item {
                                     Spacer(Modifier.height(4.dp))
                                     SectionHeading("TOP LOSERS", "Biggest percentage falls in the latest session")
                                 }
-                                items(losers, key = { "l-\${it.symbol}" }) { stock ->
+                                items(losers, key = { "l-${it.symbol}" }) { stock ->
                                     StockCard(stock = stock, onClick = { openStock(stock) })
                                 }
                             }
