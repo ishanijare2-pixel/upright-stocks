@@ -2,6 +2,8 @@ package com.ishan.uprightstocks
 
 import android.content.Context
 import android.os.Bundle
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -49,6 +51,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -573,10 +576,10 @@ private fun StockDetailsScreen(
         }
         Spacer(Modifier.height(8.dp))
         Surface(color = Panel, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.fillMaxWidth().height(170.dp).padding(12.dp)) {
+            Box(Modifier.fillMaxWidth().height(230.dp).padding(8.dp)) {
                 when {
                     historyLoading -> CircularProgressIndicator(color = Mint, modifier = Modifier.align(Alignment.Center))
-                    visibleHistory.size >= 2 -> PriceChart(visibleHistory, chartStyle)
+                    visibleHistory.size >= 2 -> TradingViewChart(visibleHistory, chartStyle)
                     else -> Text("Price history is not available for this period.", color = Muted,
                         modifier = Modifier.align(Alignment.Center), fontSize = 12.sp)
                 }
@@ -595,6 +598,101 @@ private fun StockDetailsScreen(
         Text("Historical prices are unadjusted end-of-day data. Periods use the latest available trading sessions and may not reflect later stock splits or bonuses.",
             color = Muted, fontSize = 10.sp)
     }
+}
+
+@Composable
+private fun TradingViewChart(points: List<PricePoint>, chartStyle: String) {
+    val candleData = remember(points) {
+        org.json.JSONArray().apply {
+            points.forEach { point ->
+                if (point.date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                    put(JSONObject().put("time", point.date).put("open", point.open)
+                        .put("high", point.high).put("low", point.low).put("close", point.close))
+                }
+            }
+        }.toString()
+    }
+    val lineData = remember(points) {
+        org.json.JSONArray().apply {
+            points.forEach { point ->
+                if (point.date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
+                    put(JSONObject().put("time", point.date).put("value", point.close))
+                }
+            }
+        }.toString()
+    }
+    val html = remember(candleData, lineData, chartStyle) {
+        """
+        <!doctype html>
+        <html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+        <style>
+          html,body,#chart{margin:0;width:100%;height:100%;overflow:hidden;background:#102A2B}
+          body{font-family:Arial,sans-serif}
+          #chart{height:calc(100% - 18px)}
+          #credit{height:18px;text-align:right;font-size:10px;color:#9BB7B2;padding-right:5px;box-sizing:border-box}
+          #credit a{color:#70E0C0;text-decoration:none}
+          #error{color:#FF7777;font-size:12px;padding:12px}
+        </style></head><body>
+        <div id="chart"></div><div id="credit">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> · Lightweight Charts™</div>
+        <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"
+          onerror="document.getElementById('chart').innerHTML='<div id=error>Chart library could not load. Check your internet connection.</div>'"></script>
+        <script>
+          (function(){
+            if (!window.LightweightCharts) return;
+            const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+              width: document.getElementById('chart').clientWidth,
+              height: document.getElementById('chart').clientHeight,
+              layout: { background: { type: 'solid', color: '#102A2B' }, textColor: '#D5E7E2', attributionLogo: true },
+              grid: { vertLines: { color: '#1B3B3C' }, horzLines: { color: '#1B3B3C' } },
+              rightPriceScale: { borderColor: '#315354' },
+              timeScale: { borderColor: '#315354', timeVisible: true, secondsVisible: false },
+              crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+              handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+              handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
+            });
+            const candles = ${candleData};
+            const lines = ${lineData};
+            if ('${chartStyle}' === 'Candles') {
+              const series = chart.addCandlestickSeries({
+                upColor:'#54D6A1', downColor:'#FF7777',
+                borderUpColor:'#54D6A1', borderDownColor:'#FF7777',
+                wickUpColor:'#54D6A1', wickDownColor:'#FF7777'
+              });
+              series.setData(candles);
+            } else {
+              const series = chart.addLineSeries({ color:'#70E0C0', lineWidth:2, priceLineVisible:true });
+              series.setData(lines);
+            }
+            chart.timeScale().fitContent();
+            new ResizeObserver(() => chart.applyOptions({
+              width: document.getElementById('chart').clientWidth,
+              height: document.getElementById('chart').clientHeight
+            })).observe(document.getElementById('chart'));
+          })();
+        </script></body></html>
+        """.trimIndent()
+    }
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { context ->
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                webViewClient = WebViewClient()
+                setBackgroundColor(android.graphics.Color.rgb(16, 42, 43))
+                loadDataWithBaseURL("https://appassets.androidplatform.net/", html, "text/html", "UTF-8", null)
+                tag = html
+            }
+        },
+        update = { webView ->
+            if (webView.tag != html) {
+                webView.tag = html
+                webView.loadDataWithBaseURL("https://appassets.androidplatform.net/", html, "text/html", "UTF-8", null)
+            }
+        }
+    )
 }
 
 @Composable
