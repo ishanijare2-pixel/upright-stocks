@@ -697,18 +697,132 @@ private val sectorMap = mapOf(
 
 @Composable
 private fun IndicesScreen() {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeading("MARKET INDICES", "Index quotes are not included in the connected feed")
-        listOf("NIFTY 50" to "NSE benchmark", "SENSEX" to "BSE benchmark").forEach { (name, desc) ->
-            Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(name, color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text(desc, color = Muted, fontSize = 11.sp)
-                    Text("Quote not connected", color = Loss, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
-                    Text("Official index values are not available from this data provider. No estimated figure is shown.", color = Muted, fontSize = 11.sp)
+    var nifty by remember { mutableStateOf<IndexQuote?>(null) }
+    var sensex by remember { mutableStateOf<IndexQuote?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    fun refreshIndices() {
+        scope.launch {
+            loading = true
+            error = ""
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    Pair(
+                        fetchIndexQuote("^NSEI", "NIFTY 50"),
+                        fetchIndexQuote("^BSESN", "SENSEX")
+                    )
                 }
+                nifty = results.first
+                sensex = results.second
+            } catch (e: Exception) {
+                error = e.message ?: "Could not load index data."
+            } finally {
+                loading = false
             }
         }
+    }
+
+    LaunchedEffect(Unit) { refreshIndices() }
+
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                SectionHeading("MARKET INDICES", "NSE and BSE benchmark closing levels")
+            }
+            Text(
+                if (loading) "Loading…" else "↻ Refresh",
+                color = Mint,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable(enabled = !loading) { refreshIndices() }.padding(8.dp)
+            )
+        }
+        IndexQuoteCard("NIFTY 50", nifty, loading)
+        IndexQuoteCard("SENSEX", sensex, loading)
+        if (error.isNotBlank()) {
+            Text(error, color = Loss, fontSize = 11.sp)
+            Text("Tap Refresh to try again.", color = Muted, fontSize = 11.sp)
+        }
+        Text(
+            "Source: Yahoo Finance chart feed (unofficial). Daily closing bars only; values may be delayed or unavailable. Not an exchange-certified feed.",
+            color = Muted,
+            fontSize = 10.sp
+        )
+    }
+}
+
+@Composable
+private fun IndexQuoteCard(title: String, quote: IndexQuote?, loading: Boolean) {
+    Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            if (quote == null) {
+                Text(if (loading) "Fetching latest daily close…" else "No index data loaded", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 9.dp))
+            } else {
+                val change = quote.close - quote.previousClose
+                val percent = if (quote.previousClose > 0.0) change / quote.previousClose * 100.0 else 0.0
+                Text(String.format(Locale.US, "%,.2f", quote.close), color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text(
+                    String.format(Locale.US, "%+.2f  (%+.2f%%)", change, percent),
+                    color = if (change >= 0) Gain else Loss,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text("Previous close  " + String.format(Locale.US, "%,.2f", quote.previousClose), color = Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 7.dp))
+                Text("Daily bar: ${quote.date}", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+    }
+}
+
+private data class IndexQuote(
+    val close: Double,
+    val previousClose: Double,
+    val date: String
+)
+
+private fun fetchIndexQuote(symbol: String, displayName: String): IndexQuote {
+    val encoded = java.net.URLEncoder.encode(symbol, "UTF-8")
+    val address = "https://query1.finance.yahoo.com/v8/finance/chart/$encoded?range=5d&interval=1d&includePrePost=false"
+    val connection = (URL(address).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15000
+        readTimeout = 20000
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "UprightStocks-Android/1.0")
+    }
+    try {
+        val code = connection.responseCode
+        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        check(code in 200..299) { "$displayName data provider returned HTTP $code." }
+        val root = JSONObject(body)
+        val chart = root.optJSONObject("chart") ?: error("Invalid $displayName response.")
+        val result = chart.optJSONArray("result")?.optJSONObject(0) ?: error("$displayName data is unavailable.")
+        val timestamps = result.optJSONArray("timestamp") ?: error("$displayName dates are unavailable.")
+        val quote = result.optJSONObject("indicators")?.optJSONArray("quote")?.optJSONObject(0)
+            ?: error("$displayName closing prices are unavailable.")
+        val closes = quote.optJSONArray("close") ?: error("$displayName closing prices are unavailable.")
+        val valid = (0 until minOf(timestamps.length(), closes.length())).mapNotNull { index ->
+            if (closes.isNull(index)) null else {
+                val value = closes.optDouble(index, Double.NaN)
+                if (!value.isFinite() || value <= 0.0) null else Pair(timestamps.optLong(index), value)
+            }
+        }
+        check(valid.size >= 2) { "Not enough daily data for $displayName yet." }
+        val latest = valid[valid.lastIndex]
+        val previous = valid[valid.lastIndex - 1]
+        val formatter = SimpleDateFormat("dd MMM yyyy", Locale.US)
+        formatter.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+        val date = formatter.format(java.util.Date(latest.first * 1000L))
+        return IndexQuote(latest.second, previous.second, date)
+    } finally {
+        connection.disconnect()
     }
 }
 
