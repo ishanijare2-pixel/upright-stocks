@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +35,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,17 +62,21 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-private val Navy = Color(0xFF071B1C)
-private val Panel = Color(0xFF102A2B)
-private val PanelLight = Color(0xFF173738)
-private val Mint = Color(0xFF70E0C0)
-private val Muted = Color(0xFF9BB7B2)
-private val Gain = Color(0xFF54D6A1)
-private val Loss = Color(0xFFFF7777)
-private val White = Color(0xFFF3FAF8)
+private val LightThemeState = mutableStateOf(false)
+private val Navy: Color get() = if (LightThemeState.value) Color(0xFFF1F6F4) else Color(0xFF071B1C)
+private val Panel: Color get() = if (LightThemeState.value) Color.White else Color(0xFF102A2B)
+private val PanelLight: Color get() = if (LightThemeState.value) Color(0xFFE2ECE8) else Color(0xFF173738)
+private val Mint: Color get() = if (LightThemeState.value) Color(0xFF087F68) else Color(0xFF70E0C0)
+private val Muted: Color get() = if (LightThemeState.value) Color(0xFF60756F) else Color(0xFF9BB7B2)
+private val Gain: Color get() = if (LightThemeState.value) Color(0xFF14865D) else Color(0xFF54D6A1)
+private val Loss: Color get() = if (LightThemeState.value) Color(0xFFC84D4D) else Color(0xFFFF7777)
+private val White: Color get() = if (LightThemeState.value) Color(0xFF152D28) else Color(0xFFF3FAF8)
 
 private const val PREFS_NAME = "upright_stocks"
 private const val WATCHLIST_KEY = "watchlist"
+private const val PORTFOLIO_KEY = "portfolio"
+private const val ALERTS_KEY = "alerts"
+private const val THEME_KEY = "light_theme"
 private val DEFAULT_WATCHLIST = setOf(
     "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
     "SBIN", "ITC", "LT", "BHARTIARTL", "TATAMOTORS"
@@ -93,33 +99,42 @@ data class Stock(
 }
 
 data class PricePoint(val date: String, val close: Double)
+data class PortfolioHolding(val symbol: String, val quantity: Double, val averagePrice: Double)
+data class PriceAlert(val symbol: String, val target: Double, val above: Boolean)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            var lightTheme by remember { mutableStateOf(getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(THEME_KEY, false)) }
             MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = Mint,
-                    background = Navy,
-                    surface = Panel,
-                    onPrimary = Navy,
-                    onBackground = White,
-                    onSurface = White
+                colorScheme = if (lightTheme) androidx.compose.material3.lightColorScheme(
+                    primary = Color(0xFF087F68), background = Color(0xFFF1F6F4), surface = Color.White,
+                    onPrimary = Color.White, onBackground = Color(0xFF152D28), onSurface = Color(0xFF152D28)
+                ) else darkColorScheme(
+                    primary = Color(0xFF70E0C0), background = Color(0xFF071B1C), surface = Color(0xFF102A2B),
+                    onPrimary = Color(0xFF071B1C), onBackground = Color(0xFFF3FAF8), onSurface = Color(0xFFF3FAF8)
                 )
             ) {
-                UprightStocksApp()
+                UprightStocksApp(isLightTheme = lightTheme, onToggleTheme = {
+                    lightTheme = !lightTheme
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putBoolean(THEME_KEY, lightTheme).apply()
+                })
             }
         }
     }
 }
 
 @Composable
-private fun UprightStocksApp() {
+private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
+    SideEffect { LightThemeState.value = isLightTheme }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var stocks by remember { mutableStateOf(emptyList<Stock>()) }
     var watchlist by remember { mutableStateOf(loadWatchlist(context)) }
+    var portfolio by remember { mutableStateOf(loadPortfolio(context)) }
+    var alerts by remember { mutableStateOf(loadAlerts(context)) }
+    var changeFilter by remember { mutableStateOf("All") }
     var search by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf("Symbol") }
     var selectedTab by remember { mutableStateOf(0) }
@@ -174,7 +189,12 @@ private fun UprightStocksApp() {
     val advancers = stocks.count { it.change > 0 }
     val decliners = stocks.count { it.change < 0 }
     val filtered = stocks.filter {
-        it.symbol.contains(search, true) || it.company.contains(search, true)
+        (it.symbol.contains(search, true) || it.company.contains(search, true)) &&
+            when (changeFilter) {
+                "Gainers" -> it.changePercent > 0.0
+                "Losers" -> it.changePercent < 0.0
+                else -> true
+            }
     }
     val sortedFiltered = when (sortMode) {
         "Price" -> filtered.sortedByDescending { it.price }
@@ -251,18 +271,18 @@ private fun UprightStocksApp() {
 
                 Spacer(Modifier.height(14.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(14.dp)).padding(4.dp),
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Panel, RoundedCornerShape(14.dp)).padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    listOf("Market", "Watchlist", "Movers").forEachIndexed { index, title ->
+                    listOf("Market", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings").forEachIndexed { index, title ->
                         Surface(
-                            modifier = Modifier.weight(1f).clickable { selectedTab = index },
+                            modifier = Modifier.clickable { selectedTab = index },
                             color = if (selectedTab == index) Mint else Color.Transparent,
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text(title, color = if (selectedTab == index) Navy else Muted,
                                 fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(vertical = 10.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
                     }
                 }
@@ -294,6 +314,9 @@ private fun UprightStocksApp() {
                             }
                             Spacer(Modifier.height(7.dp))
                             Text("${sortedFiltered.size} matching stocks · sorted by $sortMode", color = Muted, fontSize = 11.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(vertical = 7.dp)) {
+                                listOf("All", "Gainers", "Losers").forEach { filter -> SortChip(filter, changeFilter == filter) { changeFilter = filter } }
+                            }
                             LazyColumn(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -343,6 +366,17 @@ private fun UprightStocksApp() {
                             }
                         }
                     }
+                    3 -> IndicesScreen()
+                    4 -> SectorsScreen(stocks, { openStock(it) })
+                    5 -> PortfolioScreen(stocks, portfolio, { symbol, qty, avg ->
+                        portfolio = (portfolio.filterNot { it.symbol == symbol } + PortfolioHolding(symbol, qty, avg)).sortedBy { it.symbol }
+                        savePortfolio(context, portfolio)
+                    }, { symbol -> portfolio = portfolio.filterNot { it.symbol == symbol }; savePortfolio(context, portfolio) })
+                    6 -> AlertsScreen(stocks, alerts, { symbol, target, above ->
+                        alerts = (alerts.filterNot { it.symbol == symbol } + PriceAlert(symbol, target, above)).sortedBy { it.symbol }
+                        saveAlerts(context, alerts)
+                    }, { symbol -> alerts = alerts.filterNot { it.symbol == symbol }; saveAlerts(context, alerts) })
+                    else -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -617,7 +651,7 @@ private object StockRepository {
     suspend fun fetchHistory(symbol: String): List<PricePoint> = withContext(Dispatchers.IO) {
         val toCalendar = Calendar.getInstance()
         val to = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(toCalendar.time)
-        toCalendar.add(Calendar.DAY_OF_YEAR, -100)
+        toCalendar.add(Calendar.DAY_OF_YEAR, -400)
         val from = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(toCalendar.time)
         val root = getJson("$BASE_URL/v1/ohlcv/nse/$symbol?from=$from&to=$to")
         val rows = root.optJSONArray("data") ?: return@withContext emptyList()
@@ -648,6 +682,201 @@ private object StockRepository {
             connection.disconnect()
         }
     }
+}
+
+
+private val sectorMap = mapOf(
+"RELIANCE" to "Energy", "ONGC" to "Energy", "IOC" to "Energy", "BPCL" to "Energy", "NTPC" to "Utilities", "POWERGRID" to "Utilities",
+"TCS" to "IT", "INFY" to "IT", "HCLTECH" to "IT", "WIPRO" to "IT", "TECHM" to "IT", "LTIM" to "IT",
+"HDFCBANK" to "Banking", "ICICIBANK" to "Banking", "SBIN" to "Banking", "KOTAKBANK" to "Banking", "AXISBANK" to "Banking",
+"BAJFINANCE" to "Financials", "BAJAJFINSV" to "Financials", "ITC" to "FMCG", "HINDUNILVR" to "FMCG", "NESTLEIND" to "FMCG",
+"TATAMOTORS" to "Auto", "MARUTI" to "Auto", "HEROMOTOCO" to "Auto", "SUNPHARMA" to "Pharma", "DRREDDY" to "Pharma",
+"LT" to "Industrials", "ADANIPORTS" to "Industrials", "ULTRACEMCO" to "Materials", "TATASTEEL" to "Materials",
+"BHARTIARTL" to "Telecom", "ASIANPAINT" to "Consumer", "TITAN" to "Consumer"
+)
+
+@Composable
+private fun IndicesScreen() {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeading("MARKET INDICES", "Index quotes are not included in the connected feed")
+        listOf("NIFTY 50" to "NSE benchmark", "SENSEX" to "BSE benchmark").forEach { (name, desc) ->
+            Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(name, color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text(desc, color = Muted, fontSize = 11.sp)
+                    Text("Quote not connected", color = Loss, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                    Text("Official index values are not available from this data provider. No estimated figure is shown.", color = Muted, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectorsScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
+    val grouped = stocks.filter { sectorMap.containsKey(it.symbol) }.groupBy { sectorMap[it.symbol]!! }
+        .map { (name, list) -> Triple(name, list, list.map { it.changePercent }.average()) }.sortedByDescending { it.third }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        SectionHeading("SECTOR PERFORMANCE", "Equal-weight average of selected mapped stocks")
+        Text("Indicative calculation, not an official sector index.", color = Muted, fontSize = 10.sp)
+        grouped.forEach { (name, members, average) ->
+            Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(13.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, color = White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(String.format(Locale.US, "%+.2f%%", average), color = if (average >= 0) Gain else Loss, fontWeight = FontWeight.Bold)
+                    }
+                    Text("${members.size} mapped stocks", color = Muted, fontSize = 10.sp)
+                    members.sortedByDescending { it.changePercent }.take(4).forEach { stock ->
+                        Row(Modifier.fillMaxWidth().clickable { onOpen(stock) }.padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(stock.symbol, color = White, fontSize = 11.sp)
+                            Text(String.format(Locale.US, "%+.2f%%", stock.changePercent), color = if (stock.changePercent >= 0) Gain else Loss, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+        if (stocks.isEmpty()) Text("Load market data to calculate sector changes.", color = Muted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding>, onAdd: (String, Double, Double) -> Unit, onRemove: (String) -> Unit) {
+    var symbol by remember { mutableStateOf("") }
+    var qty by remember { mutableStateOf("1") }
+    var average by remember { mutableStateOf("") }
+    val value = holdings.sumOf { h -> (stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice) * h.quantity }
+    val cost = holdings.sumOf { it.averagePrice * it.quantity }
+    val pnl = value - cost
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        SectionHeading("SIMULATED PORTFOLIO", "Practice tracker · no broker connection or real trades")
+        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Text("Estimated value", color = Muted, fontSize = 10.sp)
+                Text(formatRupees(value), color = White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("P/L ${String.format(Locale.US, "%+.2f", pnl)}", color = if (pnl >= 0) Gain else Loss, fontWeight = FontWeight.Bold)
+            }
+        }
+        OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() || c == '-' || c == '&' } }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = qty, onValueChange = { qty = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Quantity") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(value = average, onValueChange = { average = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Average buy ₹") }, singleLine = true, modifier = Modifier.weight(1f))
+        }
+        Button(onClick = {
+            val q = qty.toDoubleOrNull() ?: 0.0
+            val p = average.toDoubleOrNull() ?: 0.0
+            if (symbol.isNotBlank() && q > 0 && p > 0) { onAdd(symbol, q, p); symbol = ""; qty = "1"; average = "" }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Save simulated holding") }
+        holdings.forEach { h ->
+            val current = stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice
+            Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(h.symbol, color = White, fontWeight = FontWeight.Bold)
+                        Text("${h.quantity} shares · value ${formatRupees(current * h.quantity)}", color = Muted, fontSize = 10.sp)
+                    }
+                    Text("Remove", color = Loss, modifier = Modifier.clickable { onRemove(h.symbol) }.padding(6.dp))
+                }
+            }
+        }
+        Text("Educational record-keeping only. No orders or investment recommendations.", color = Muted, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, onAdd: (String, Double, Boolean) -> Unit, onRemove: (String) -> Unit) {
+    var symbol by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf("") }
+    var above by remember { mutableStateOf(true) }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        SectionHeading("PRICE ALERTS", "In-app checks on refreshed closing prices")
+        Text("Not live alerts or push notifications; checked when EOD data is refreshed.", color = Muted, fontSize = 10.sp)
+        OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = target, onValueChange = { target = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Target price ₹") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SortChip("Above", above) { above = true }
+            SortChip("Below", !above) { above = false }
+        }
+        Button(onClick = {
+            val price = target.toDoubleOrNull() ?: 0.0
+            if (symbol.isNotBlank() && price > 0) { onAdd(symbol, price, above); symbol = ""; target = "" }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Save alert") }
+        alerts.forEach { a ->
+            val price = stocks.find { it.symbol == a.symbol }?.price
+            val hit = price != null && if (a.above) price >= a.target else price <= a.target
+            Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(a.symbol, color = White, fontWeight = FontWeight.Bold)
+                        Text("${if (a.above) "Above" else "Below"} ${formatRupees(a.target)}", color = Muted, fontSize = 10.sp)
+                        Text(if (price == null) "Waiting for quote" else if (hit) "Target reached on latest close" else "Latest close ${formatRupees(price)}", color = if (hit) Gain else Muted, fontSize = 10.sp)
+                    }
+                    Text("Remove", color = Loss, modifier = Modifier.clickable { onRemove(a.symbol) }.padding(6.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(light: Boolean, toggle: () -> Unit, date: String) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeading("SETTINGS", "Personalise Upright Stocks")
+        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Appearance", color = White, fontWeight = FontWeight.Bold)
+                    Text(if (light) "Light theme" else "Dark theme", color = Muted, fontSize = 10.sp)
+                }
+                Button(onClick = toggle) { Text(if (light) "Use dark" else "Use light") }
+            }
+        }
+        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Text("Data source: TejHQ · NSE EOD bhavcopy", color = White, fontWeight = FontWeight.Bold)
+                Text("Latest date: ${date.ifBlank { "Not loaded" }}", color = Muted, fontSize = 11.sp)
+                Text("No live or intraday prices.", color = Muted, fontSize = 11.sp)
+            }
+        }
+        Text("Educational market-data viewer. No broker connection or trade execution.", color = Muted, fontSize = 10.sp)
+    }
+}
+
+private fun loadPortfolio(context: Context): List<PortfolioHolding> {
+    val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PORTFOLIO_KEY, null) ?: return emptyList()
+    return try {
+        val arr = org.json.JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val sym = o.optString("symbol"); val q = o.optDouble("qty"); val p = o.optDouble("avg")
+                if (sym.isNotBlank() && q > 0 && p > 0) add(PortfolioHolding(sym, q, p))
+            }
+        }
+    } catch (_: Exception) { emptyList() }
+}
+private fun savePortfolio(context: Context, list: List<PortfolioHolding>) {
+    val arr = org.json.JSONArray()
+    list.forEach { arr.put(JSONObject().put("symbol", it.symbol).put("qty", it.quantity).put("avg", it.averagePrice)) }
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PORTFOLIO_KEY, arr.toString()).apply()
+}
+private fun loadAlerts(context: Context): List<PriceAlert> {
+    val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(ALERTS_KEY, null) ?: return emptyList()
+    return try {
+        val arr = org.json.JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val sym = o.optString("symbol"); val p = o.optDouble("target")
+                if (sym.isNotBlank() && p > 0) add(PriceAlert(sym, p, o.optBoolean("above", true)))
+            }
+        }
+    } catch (_: Exception) { emptyList() }
+}
+private fun saveAlerts(context: Context, list: List<PriceAlert>) {
+    val arr = org.json.JSONArray()
+    list.forEach { arr.put(JSONObject().put("symbol", it.symbol).put("target", it.target).put("above", it.above)) }
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(ALERTS_KEY, arr.toString()).apply()
 }
 
 private fun loadWatchlist(context: Context): Set<String> {
