@@ -344,7 +344,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                             }
                         }
                     }
-                    else -> {
+                    2 -> {
                         if (stocks.isEmpty() && loading) LoadingState()
                         else if (stocks.isEmpty()) EmptyState(message, onRetry = { refresh() })
                         else {
