@@ -497,6 +497,18 @@ private fun StockDetailsScreen(
     onToggleWatchlist: () -> Unit
 ) {
     val movementColor = if (stock.change >= 0) Gain else Loss
+    var selectedRange by remember(stock.symbol) { mutableStateOf("3M") }
+    val rangeCount = when (selectedRange) {
+        "1M" -> 22
+        "6M" -> 132
+        "1Y" -> 252
+        else -> 66
+    }
+    val visibleHistory = history.takeLast(rangeCount)
+    val firstValue = visibleHistory.firstOrNull()?.close ?: 0.0
+    val lastValue = visibleHistory.lastOrNull()?.close ?: 0.0
+    val periodChange = lastValue - firstValue
+    val periodPercent = if (firstValue > 0.0) periodChange / firstValue * 100.0 else 0.0
     Column(modifier = Modifier.fillMaxSize().background(Navy).verticalScroll(rememberScrollState()).padding(18.dp)) {
         Text("‹  BACK TO MARKET", color = Mint, fontSize = 12.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onBack).padding(vertical = 8.dp))
@@ -507,7 +519,7 @@ private fun StockDetailsScreen(
         Text(formatRupees(stock.price), color = White, fontSize = 31.sp, fontWeight = FontWeight.Bold)
         Text(String.format(Locale.US, "%+.2f  (%+.2f%%)", stock.change, stock.changePercent),
             color = movementColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        Text("NSE closing price · \${stock.date}", color = Muted, fontSize = 11.sp,
+        Text("NSE closing price · ${stock.date}", color = Muted, fontSize = 11.sp,
             modifier = Modifier.padding(top = 5.dp))
         Spacer(Modifier.height(18.dp))
         Button(onClick = onToggleWatchlist, modifier = Modifier.fillMaxWidth()) {
@@ -515,18 +527,36 @@ private fun StockDetailsScreen(
         }
         Spacer(Modifier.height(20.dp))
         Text("PRICE HISTORY", color = Mint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text("Daily closing prices · last 90 days", color = Muted, fontSize = 10.sp)
-        Spacer(Modifier.height(10.dp))
+        Text("Choose a period · daily closing prices", color = Muted, fontSize = 10.sp)
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("1M", "3M", "6M", "1Y").forEach { range ->
+                SortChip(range, selectedRange == range) { selectedRange = range }
+            }
+        }
+        if (visibleHistory.size >= 2) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("PERIOD CHANGE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(String.format(Locale.US, "%+.2f%%", periodPercent), color = if (periodChange >= 0) Gain else Loss, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("HIGH / LOW", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("${formatRupees(visibleHistory.maxOf { it.close })} / ${formatRupees(visibleHistory.minOf { it.close })}", color = White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         Surface(color = Panel, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().height(170.dp).padding(12.dp)) {
                 when {
                     historyLoading -> CircularProgressIndicator(color = Mint, modifier = Modifier.align(Alignment.Center))
-                    history.size >= 2 -> PriceChart(history)
-                    else -> Text("Price history is not available right now.", color = Muted,
+                    visibleHistory.size >= 2 -> PriceChart(visibleHistory)
+                    else -> Text("Price history is not available for this period.", color = Muted,
                         modifier = Modifier.align(Alignment.Center), fontSize = 12.sp)
                 }
             }
         }
+        Text("${visibleHistory.size} trading sessions shown", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
         Spacer(Modifier.height(20.dp))
         Text("SESSION DETAILS", color = Mint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         Spacer(Modifier.height(9.dp))
@@ -536,7 +566,7 @@ private fun StockDetailsScreen(
         DetailLine("Previous close", formatRupees(stock.previousClose))
         DetailLine("Volume", String.format(Locale.US, "%,d", stock.volume))
         Spacer(Modifier.height(14.dp))
-        Text("Historical prices are unadjusted end-of-day data. They may not reflect later stock splits or bonuses.",
+        Text("Historical prices are unadjusted end-of-day data. Periods use the latest available trading sessions and may not reflect later stock splits or bonuses.",
             color = Muted, fontSize = 10.sp)
     }
 }
