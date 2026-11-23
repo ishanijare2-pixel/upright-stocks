@@ -98,7 +98,7 @@ data class Stock(
         get() = if (previousClose > 0.0) (change / previousClose) * 100.0 else 0.0
 }
 
-data class PricePoint(val date: String, val close: Double)
+data class PricePoint(val date: String, val close: Double, val open: Double = close, val high: Double = close, val low: Double = close)
 data class PortfolioHolding(val symbol: String, val quantity: Double, val averagePrice: Double)
 data class PriceAlert(val symbol: String, val target: Double, val above: Boolean)
 
@@ -216,7 +216,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
             )
         } else {
             Column(
-                modifier = Modifier.fillMaxSize().background(Navy).padding(horizontal = 16.dp, vertical = 12.dp)
+                modifier = Modifier.fillMaxSize().background(Navy).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 15.dp),
@@ -314,11 +314,8 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(vertical = 7.dp)) {
                                 listOf("All", "Gainers", "Losers").forEach { filter -> SortChip(filter, changeFilter == filter) { changeFilter = filter } }
                             }
-                            LazyColumn(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(sortedFiltered, key = { it.symbol }) { stock ->
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                sortedFiltered.forEach { stock ->
                                     StockCard(stock = stock, isWatched = watchlist.contains(stock.symbol), onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                             }
@@ -331,11 +328,8 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                             EmptyState("Your watchlist is empty. Open Market and tap a stock to view it, then add it to your watchlist.")
                         } else {
                             Text("${watchlistStocks.size} saved symbols · stored on this device", color = Muted, fontSize = 11.sp)
-                            LazyColumn(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(watchlistStocks, key = { it.symbol }) { stock ->
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                watchlistStocks.forEach { stock ->
                                     StockCard(stock = stock, isWatched = true, onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                             }
@@ -345,19 +339,14 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                         if (stocks.isEmpty() && loading) LoadingState()
                         else if (stocks.isEmpty()) EmptyState(message, onRetry = { refresh() })
                         else {
-                            LazyColumn(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                item { SectionHeading("TOP GAINERS", "Biggest percentage rises in the latest session") }
-                                items(gainers, key = { "g-${it.symbol}" }) { stock ->
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                SectionHeading("TOP GAINERS", "Biggest percentage rises in the latest session")
+                                gainers.forEach { stock ->
                                     StockCard(stock = stock, isWatched = watchlist.contains(stock.symbol), onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
-                                item {
-                                    Spacer(Modifier.height(4.dp))
-                                    SectionHeading("TOP LOSERS", "Biggest percentage falls in the latest session")
-                                }
-                                items(losers, key = { "l-${it.symbol}" }) { stock ->
+                                Spacer(Modifier.height(4.dp))
+                                SectionHeading("TOP LOSERS", "Biggest percentage falls in the latest session")
+                                losers.forEach { stock ->
                                     StockCard(stock = stock, isWatched = watchlist.contains(stock.symbol), onClick = { openStock(stock) }, onToggleWatchlist = { toggleWatchlist(stock.symbol) })
                                 }
                             }
@@ -530,6 +519,7 @@ private fun StockDetailsScreen(
 ) {
     val movementColor = if (stock.change >= 0) Gain else Loss
     var selectedRange by remember(stock.symbol) { mutableStateOf("3M") }
+    var chartStyle by remember(stock.symbol) { mutableStateOf("Line") }
     val rangeCount = when (selectedRange) {
         "1M" -> 22
         "6M" -> 132
@@ -559,11 +549,15 @@ private fun StockDetailsScreen(
         }
         Spacer(Modifier.height(20.dp))
         Text("PRICE HISTORY", color = Mint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text("Choose a period · daily closing prices", color = Muted, fontSize = 10.sp)
+        Text("Choose a period and chart style · daily OHLC data", color = Muted, fontSize = 10.sp)
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             listOf("1M", "3M", "6M", "1Y").forEach { range ->
                 SortChip(range, selectedRange == range) { selectedRange = range }
             }
+        }
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            SortChip("Line", chartStyle == "Line") { chartStyle = "Line" }
+            SortChip("Candles", chartStyle == "Candles") { chartStyle = "Candles" }
         }
         if (visibleHistory.size >= 2) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -582,7 +576,7 @@ private fun StockDetailsScreen(
             Box(Modifier.fillMaxWidth().height(170.dp).padding(12.dp)) {
                 when {
                     historyLoading -> CircularProgressIndicator(color = Mint, modifier = Modifier.align(Alignment.Center))
-                    visibleHistory.size >= 2 -> PriceChart(visibleHistory)
+                    visibleHistory.size >= 2 -> PriceChart(visibleHistory, chartStyle)
                     else -> Text("Price history is not available for this period.", color = Muted,
                         modifier = Modifier.align(Alignment.Center), fontSize = 12.sp)
                 }
@@ -604,25 +598,45 @@ private fun StockDetailsScreen(
 }
 
 @Composable
-private fun PriceChart(points: List<PricePoint>) {
-    val values = points.map { it.close }
+private fun PriceChart(points: List<PricePoint>, chartStyle: String) {
+    val values = points.flatMap { listOf(it.low, it.high, it.close) }
     val minValue = values.minOrNull() ?: 0.0
     val maxValue = values.maxOrNull() ?: 1.0
     val range = (maxValue - minValue).takeIf { it > 0.0 } ?: 1.0
     Canvas(Modifier.fillMaxSize()) {
-        val path = Path()
-        values.forEachIndexed { index, value ->
-            val x = if (values.size == 1) 0f else size.width * index / (values.size - 1)
-            val y = size.height - (((value - minValue) / range).toFloat() * size.height)
-            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        val topPadding = 5.dp.toPx()
+        val bottomPadding = 5.dp.toPx()
+        val chartHeight = (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
+        fun yFor(value: Double): Float =
+            topPadding + chartHeight - (((value - minValue) / range).toFloat() * chartHeight)
+        if (chartStyle == "Candles") {
+            val slotWidth = size.width / points.size.coerceAtLeast(1)
+            val bodyWidth = (slotWidth * 0.62f).coerceAtLeast(2.dp.toPx())
+            points.forEachIndexed { index, point ->
+                val x = slotWidth * (index + 0.5f)
+                val rising = point.close >= point.open
+                val candleColor = if (rising) Gain else Loss
+                drawLine(candleColor, androidx.compose.ui.geometry.Offset(x, yFor(point.high)),
+                    androidx.compose.ui.geometry.Offset(x, yFor(point.low)), strokeWidth = 1.dp.toPx())
+                val bodyTop = minOf(yFor(point.open), yFor(point.close))
+                val bodyBottom = maxOf(yFor(point.open), yFor(point.close))
+                val bodyHeight = (bodyBottom - bodyTop).coerceAtLeast(1.5.dp.toPx())
+                drawRect(candleColor,
+                    topLeft = androidx.compose.ui.geometry.Offset(x - bodyWidth / 2f, bodyTop),
+                    size = androidx.compose.ui.geometry.Size(bodyWidth, bodyHeight))
+            }
+        } else {
+            val path = Path()
+            points.forEachIndexed { index, point ->
+                val x = if (points.size == 1) 0f else size.width * index / (points.size - 1)
+                val y = yFor(point.close)
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, color = Mint, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
         }
-        drawPath(path, color = Mint, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
-        drawLine(
-            color = Muted.copy(alpha = 0.25f),
+        drawLine(color = Muted.copy(alpha = 0.25f),
             start = androidx.compose.ui.geometry.Offset(0f, size.height),
-            end = androidx.compose.ui.geometry.Offset(size.width, size.height),
-            strokeWidth = 1.dp.toPx()
-        )
+            end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1.dp.toPx())
     }
 }
 
@@ -721,7 +735,12 @@ private object StockRepository {
             for (index in 0 until rows.length()) {
                 val item = rows.optJSONObject(index) ?: continue
                 val close = item.optDouble("close", 0.0)
-                if (close > 0.0) add(PricePoint(item.optString("date", ""), close))
+                val open = item.optDouble("open", close)
+                val high = item.optDouble("high", maxOf(open, close))
+                val low = item.optDouble("low", minOf(open, close))
+                if (close > 0.0 && open > 0.0 && high > 0.0 && low > 0.0) {
+                    add(PricePoint(item.optString("date", ""), close, open, high, low))
+                }
             }
         }
     }
