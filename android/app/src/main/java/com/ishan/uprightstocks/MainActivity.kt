@@ -379,7 +379,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     6 -> AlertsScreen(stocks, alerts, marketDate, { symbol, target, above, kind ->
                         alerts = (alerts.filterNot { it.symbol == symbol && it.kind == kind } + PriceAlert(symbol, target, above, kind)).sortedBy { it.symbol }
                         saveAlerts(context, alerts)
-                    }, { symbol -> alerts = alerts.filterNot { it.symbol == symbol }; saveAlerts(context, alerts) })
+                    }, { symbol, kind -> alerts = alerts.filterNot { it.symbol == symbol && it.kind == kind }; saveAlerts(context, alerts) })
                     7 -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
                     8 -> ScreenerScreen(stocks, { openStock(it) })
                     else -> ResearchScreen()
@@ -1203,7 +1203,7 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
 }
 
 @Composable
-private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDate: String, onAdd: (String, Double, Boolean, String) -> Unit, onRemove: (String) -> Unit) {
+private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDate: String, onAdd: (String, Double, Boolean, String) -> Unit, onRemove: (String, String) -> Unit) {
     var symbol by remember { mutableStateOf("") }
     var target by remember { mutableStateOf("2") }
     var above by remember { mutableStateOf(true) }
@@ -1223,8 +1223,8 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
         val history = histories[alert.symbol].orEmpty()
         return when (alert.kind) {
             "Daily %" -> if (alert.above) stock.changePercent >= alert.target else stock.changePercent <= -alert.target
-            "52W High" -> history.isNotEmpty() && stock.price >= history.maxOf { it.high }
-            "52W Low" -> history.isNotEmpty() && stock.price <= history.minOf { it.low }
+            "52W High" -> history.isNotEmpty() && stock.price >= history.takeLast(252).maxOf { it.high }
+            "52W Low" -> history.isNotEmpty() && stock.price <= history.takeLast(252).minOf { it.low }
             "Volume Spike" -> {
                 val baseline = history.dropLast(1).takeLast(20).map { it.volume }.filter { it > 0 }.average()
                 baseline > 0.0 && stock.volume >= baseline * alert.target
@@ -1315,7 +1315,7 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
                             color = if (hit) Gain else Muted, fontSize = 10.sp)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Text("Remove alert", color = Loss, modifier = Modifier.clickable { onRemove(alert.symbol) }.padding(top = 8.dp, start = 8.dp))
+                        Text("Remove alert", color = Loss, modifier = Modifier.clickable { onRemove(alert.symbol, alert.kind) }.padding(top = 8.dp, start = 8.dp))
                     }
                 }
             }
