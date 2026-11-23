@@ -104,7 +104,7 @@ data class Stock(
 
 data class PricePoint(val date: String, val close: Double, val open: Double = close, val high: Double = close, val low: Double = close, val volume: Long = 0L)
 data class PortfolioHolding(val symbol: String, val quantity: Double, val averagePrice: Double)
-data class PriceAlert(val symbol: String, val target: Double, val above: Boolean)
+data class PriceAlert(val symbol: String, val target: Double, val above: Boolean, val kind: String = "Price")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -376,8 +376,8 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                         portfolio = (portfolio.filterNot { it.symbol == symbol } + PortfolioHolding(symbol, qty, avg)).sortedBy { it.symbol }
                         savePortfolio(context, portfolio)
                     }, { symbol -> portfolio = portfolio.filterNot { it.symbol == symbol }; savePortfolio(context, portfolio) })
-                    6 -> AlertsScreen(stocks, alerts, marketDate, { symbol, target, above ->
-                        alerts = (alerts.filterNot { it.symbol == symbol } + PriceAlert(symbol, target, above)).sortedBy { it.symbol }
+                    6 -> AlertsScreen(stocks, alerts, marketDate, { symbol, target, above, kind ->
+                        alerts = (alerts.filterNot { it.symbol == symbol && it.kind == kind } + PriceAlert(symbol, target, above, kind)).sortedBy { it.symbol }
                         saveAlerts(context, alerts)
                     }, { symbol -> alerts = alerts.filterNot { it.symbol == symbol }; saveAlerts(context, alerts) })
                     7 -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
@@ -1203,14 +1203,17 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
 }
 
 @Composable
-private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDate: String, onAdd: (String, Double, Boolean) -> Unit, onRemove: (String) -> Unit) {
+private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDate: String, onAdd: (String, Double, Boolean, String) -> Unit, onRemove: (String) -> Unit) {
     var symbol by remember { mutableStateOf("") }
     var target by remember { mutableStateOf("") }
     var above by remember { mutableStateOf(true) }
+    var alertKind by remember { mutableStateOf("Price") }
     var validation by remember { mutableStateOf("") }
     val hitCount = alerts.count { alert ->
-        val current = stocks.find { it.symbol == alert.symbol }?.price
-        current != null && if (alert.above) current >= alert.target else current <= alert.target
+        val current = stocks.find { it.symbol == alert.symbol }
+        current != null && if (alert.kind == "Daily %") {
+            if (alert.above) current.changePercent >= alert.target else current.changePercent <= -alert.target
+        } else if (alert.above) current.price >= alert.target else current.price <= alert.target
     }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         SectionHeading("PRICE ALERTS", "Track price levels against NSE closing data")
@@ -1221,7 +1224,12 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
         Text(if (marketDate.isBlank()) "No market session loaded yet. Refresh the Market tab first." else "Last checked against the " + marketDate + " closing session.", color = Muted, fontSize = 10.sp)
         Text("In-app checks only—not live alerts, push notifications, or trading signals.", color = Muted, fontSize = 10.sp)
         OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() }; validation = "" }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = target, onValueChange = { target = it.filter { c -> c.isDigit() || c == '.' }; validation = "" }, label = { Text("Target price ₹") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            SortChip("Price ₹", alertKind == "Price") { alertKind = "Price" }
+            SortChip("Daily % move", alertKind == "Daily %") { alertKind = "Daily %" }
+        }
+        OutlinedTextField(value = target, onValueChange = { target = it.filter { c -> c.isDigit() || c == '.' }; validation = "" },
+            label = { Text(if (alertKind == "Price") "Target price ₹" else "Absolute daily change %") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SortChip("At or above", above) { above = true }
             SortChip("At or below", !above) { above = false }
@@ -1235,7 +1243,7 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
                 cleanSymbol.isBlank() -> validation = "Enter an NSE symbol."
                 !known -> validation = "Symbol not found. Refresh market data and use a listed symbol."
                 !price.isFinite() || price <= 0.0 -> validation = "Enter a valid target price greater than ₹0."
-                else -> { onAdd(cleanSymbol, price, above); symbol = ""; target = ""; validation = "" }
+                else -> { onAdd(cleanSymbol, price, above, alertKind); symbol = ""; target = ""; validation = "" }
             }
         }, modifier = Modifier.fillMaxWidth(), enabled = stocks.isNotEmpty()) { Text("Save / update alert") }
         Text("SAVED ALERTS", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -1243,14 +1251,15 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
         alerts.forEach { alert ->
             val stock = stocks.find { it.symbol == alert.symbol }
             val price = stock?.price
-            val hit = price != null && if (alert.above) price >= alert.target else price <= alert.target
-            val distance = if (price != null && price > 0.0) ((alert.target - price) / price) * 100.0 else null
+            val observed = if (alert.kind == "Daily %") stock?.changePercent else price
+            val hit = observed != null && if (alert.above) observed >= alert.target else observed <= -alert.target
+            val distance = if (observed != null) alert.target - kotlin.math.abs(observed) else null
             Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(13.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(alert.symbol, color = White, fontWeight = FontWeight.Bold)
-                            Text((if (alert.above) "At or above " else "At or below ") + formatRupees(alert.target), color = Muted, fontSize = 10.sp)
+                            Text(if (alert.kind == "Daily %") "Daily move " + (if (alert.above) "at/above " else "at/below -") + String.format(Locale.US, "%.2f%%", alert.target) else (if (alert.above) "At or above " else "At or below ") + formatRupees(alert.target), color = Muted, fontSize = 10.sp)
                         }
                         Surface(color = (if (hit) Gain else Muted).copy(alpha = 0.14f), shape = RoundedCornerShape(18.dp)) {
                             Text(if (hit) "TRIGGERED" else if (price == null) "NO QUOTE" else "WAITING", color = if (hit) Gain else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
@@ -1259,8 +1268,10 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
                     Spacer(Modifier.height(7.dp))
                     if (price == null) Text("No quote in the currently loaded market snapshot.", color = Muted, fontSize = 10.sp)
                     else {
-                        Text("Latest close  " + formatRupees(price), color = White, fontSize = 11.sp)
-                        Text(if (hit) "Target condition met on the latest close." else "Target is " + String.format(Locale.US, "%.2f", kotlin.math.abs(distance ?: 0.0)) + "% " + (if ((distance ?: 0.0) >= 0) "above" else "below") + " the latest close.", color = if (hit) Gain else Muted, fontSize = 10.sp)
+                        if (alert.kind == "Daily %") {
+                            Text("Latest daily change  " + String.format(Locale.US, "%+.2f%%", stock!!.changePercent), color = White, fontSize = 11.sp)
+                        } else Text("Latest close  " + formatRupees(price), color = White, fontSize = 11.sp)
+                        Text(if (hit) "Target condition met on the latest EOD snapshot." else "Condition not met on the latest EOD snapshot.", color = if (hit) Gain else Muted, fontSize = 10.sp)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Text("Remove alert", color = Loss, modifier = Modifier.clickable { onRemove(alert.symbol) }.padding(top = 8.dp, start = 8.dp))
@@ -1292,7 +1303,7 @@ private fun WatchlistsScreen(
             OutlinedTextField(newName, { newName = it }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("New watchlist name") })
             Button(onClick = { onCreate(newName); newName = "" }, enabled = newName.isNotBlank() && !names.contains(newName.trim())) { Text("Create") }
         }
-        Text("\${activeName} · \${listStocks.size} saved stocks · stored on this device", color = Muted, fontSize = 10.sp)
+        Text("${activeName} · ${listStocks.size} saved stocks · stored on this device", color = Muted, fontSize = 10.sp)
         if (stocks.isEmpty()) Text("Load market data to show current watchlist prices.", color = Muted, fontSize = 11.sp)
         else if (listStocks.isEmpty()) Text("This list is empty. Open Market and tap the star beside a stock to add it.", color = Muted, fontSize = 11.sp)
         listStocks.forEach { stock -> StockCard(stock, true, { onOpen(stock) }, { onToggle(stock.symbol) }) }
@@ -1326,7 +1337,7 @@ private fun ScreenerScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             listOf("Change", "Price", "Volume", "Symbol").forEach { SortChip(it, sort == it) { sort = it } }
         }
-        Text("\${results.size} matching stocks · latest EOD snapshot", color = Muted, fontSize = 10.sp)
+        Text("${results.size} matching stocks · latest EOD snapshot", color = Muted, fontSize = 10.sp)
         results.take(150).forEach { stock -> StockCard(stock, false, { onOpen(stock) }, {}) }
         if (results.isEmpty()) Text("No stocks match these filters. Try a lower volume threshold.", color = Muted, fontSize = 11.sp)
         if (results.size > 150) Text("Showing first 150 results. Narrow your filters to see more.", color = Muted, fontSize = 10.sp)
@@ -1439,14 +1450,14 @@ private fun loadAlerts(context: Context): List<PriceAlert> {
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val sym = o.optString("symbol"); val p = o.optDouble("target")
-                if (sym.isNotBlank() && p > 0) add(PriceAlert(sym, p, o.optBoolean("above", true)))
+                if (sym.isNotBlank() && p > 0) add(PriceAlert(sym, p, o.optBoolean("above", true), o.optString("kind", "Price")))
             }
         }
     } catch (_: Exception) { emptyList() }
 }
 private fun saveAlerts(context: Context, list: List<PriceAlert>) {
     val arr = org.json.JSONArray()
-    list.forEach { arr.put(JSONObject().put("symbol", it.symbol).put("target", it.target).put("above", it.above)) }
+    list.forEach { arr.put(JSONObject().put("symbol", it.symbol).put("target", it.target).put("above", it.above).put("kind", it.kind)) }
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(ALERTS_KEY, arr.toString()).apply()
 }
 
