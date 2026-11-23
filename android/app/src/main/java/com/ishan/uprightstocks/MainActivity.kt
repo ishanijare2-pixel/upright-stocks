@@ -121,6 +121,7 @@ private fun UprightStocksApp() {
     var stocks by remember { mutableStateOf(emptyList<Stock>()) }
     var watchlist by remember { mutableStateOf(loadWatchlist(context)) }
     var search by remember { mutableStateOf("") }
+    var sortMode by remember { mutableStateOf("Symbol") }
     var selectedTab by remember { mutableStateOf(0) }
     var selectedStock by remember { mutableStateOf<Stock?>(null) }
     var history by remember { mutableStateOf(emptyList<PricePoint>()) }
@@ -174,6 +175,11 @@ private fun UprightStocksApp() {
     val decliners = stocks.count { it.change < 0 }
     val filtered = stocks.filter {
         it.symbol.contains(search, true) || it.company.contains(search, true)
+    }
+    val sortedFiltered = when (sortMode) {
+        "Price" -> filtered.sortedByDescending { it.price }
+        "Change" -> filtered.sortedByDescending { it.changePercent }
+        else -> filtered.sortedBy { it.symbol }
     }
     val watchlistStocks = stocks.filter { watchlist.contains(it.symbol) }.sortedBy { it.symbol }
 
@@ -244,12 +250,25 @@ private fun UprightStocksApp() {
                         if (loading && stocks.isEmpty()) LoadingState()
                         else if (stocks.isEmpty()) EmptyState(message, onRetry = { refresh() })
                         else {
-                            Text("\${filtered.size} matching stocks", color = Muted, fontSize = 11.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("SORT", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                listOf("Symbol", "Price", "Change").forEach { mode ->
+                                    SortChip(label = mode, selected = sortMode == mode) {
+                                        sortMode = mode
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Text("${sortedFiltered.size} matching stocks · sorted by $sortMode", color = Muted, fontSize = 11.sp)
                             LazyColumn(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(filtered, key = { it.symbol }) { stock ->
+                                items(sortedFiltered, key = { it.symbol }) { stock ->
                                     StockCard(stock = stock, onClick = { openStock(stock) })
                                 }
                             }
@@ -303,6 +322,23 @@ private fun UprightStocksApp() {
                 Text("Data: TejHQ, sourced from NSE bhavcopy", color = Muted, fontSize = 9.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun SortChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        color = if (selected) Mint.copy(alpha = 0.18f) else Panel,
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Text(
+            label,
+            color = if (selected) Mint else Muted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
+        )
     }
 }
 
