@@ -733,7 +733,7 @@ private fun TradingViewChart(points: List<PricePoint>, chartStyle: String) {
               const series = chart.addLineSeries({ color:'#70E0C0', lineWidth:2, priceLineVisible:true });
               series.setData(lines);
             }
-            const volumes = \${volumeData};
+            const volumes = ${volumeData};
             const volumeSeries = chart.addHistogramSeries({
               priceFormat: { type: 'volume' }, priceScaleId: '',
               scaleMargins: { top: 0.82, bottom: 0 }
@@ -1239,7 +1239,7 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
             MetricCard("TOTAL ALERTS", alerts.size.toString(), Modifier.weight(1f))
             MetricCard("TRIGGERED", hitCount.toString(), Modifier.weight(1f), if (hitCount > 0) Gain else Mint)
         }
-        Text(if (marketDate.isBlank()) "No market session loaded yet. Refresh the Market tab first." else "Last checked against the \${marketDate} closing session.", color = Muted, fontSize = 10.sp)
+        Text(if (marketDate.isBlank()) "No market session loaded yet. Refresh the Market tab first." else "Last checked against the ${marketDate} closing session.", color = Muted, fontSize = 10.sp)
         Text("In-app checks only—not live alerts, push notifications, or trading signals.", color = Muted, fontSize = 10.sp)
         OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() }; validation = "" }, label = { Text("NSE symbol") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Text("ALERT CONDITION", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -1308,7 +1308,7 @@ private fun AlertsScreen(stocks: List<Stock>, alerts: List<PriceAlert>, marketDa
                     Spacer(Modifier.height(7.dp))
                     if (stock == null) Text("No quote in the currently loaded market snapshot.", color = Muted, fontSize = 10.sp)
                     else {
-                        Text("Latest close \${formatRupees(stock.price)} · daily move \${String.format(Locale.US, "%+.2f%%", stock.changePercent)} · volume \${String.format(Locale.US, "%,d", stock.volume)}",
+                        Text("Latest close ${formatRupees(stock.price)} · daily move ${String.format(Locale.US, "%+.2f%%", stock.changePercent)} · volume ${String.format(Locale.US, "%,d", stock.volume)}",
                             color = White, fontSize = 10.sp)
                         if (noHistory) Text("Historical OHLCV data is not available to evaluate this condition.", color = Muted, fontSize = 10.sp)
                         else Text(if (hit) "Condition met on the latest EOD snapshot." else "Condition not met on the latest EOD snapshot.",
