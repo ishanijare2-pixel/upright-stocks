@@ -293,7 +293,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Panel, RoundedCornerShape(14.dp)).padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    listOf("Market", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings", "Screener", "Research", "Compare").forEachIndexed { index, title ->
+                    listOf("Dashboard", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings", "Screener", "Research", "Compare", "Console").forEachIndexed { index, title ->
                         Surface(
                             modifier = Modifier.clickable { selectedTab = index },
                             color = if (selectedTab == index) Mint else Color.Transparent,
@@ -308,6 +308,17 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 when (selectedTab) {
                     0 -> {
+                        MarketDashboardOverview(
+                            stocks = stocks,
+                            marketDate = marketDate,
+                            advancers = advancers,
+                            decliners = decliners,
+                            watchlistCount = watchlistStocks.size,
+                            onConsole = { selectedTab = 11 },
+                            onNavigate = { selectedTab = it },
+                            onOpenStock = { openStock(it) }
+                        )
+                        Spacer(Modifier.height(12.dp))
                         OutlinedTextField(
                             value = search,
                             onValueChange = { search = it },
@@ -383,7 +394,11 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     7 -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
                     8 -> ScreenerScreen(stocks, { openStock(it) })
                     9 -> ResearchScreen()
-                    else -> CompareScreen(stocks, { openStock(it) })
+                    10 -> CompareScreen(stocks, { openStock(it) })
+                    else -> MarketConsoleScreen(
+                        stocks, marketDate, watchlistStocks, gainers, losers, alerts.size,
+                        { selectedTab = it }, { openStock(it) }, { refresh() }, loading
+                    )
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -1438,6 +1453,166 @@ private fun SettingsScreen(light: Boolean, toggle: () -> Unit, date: String) {
             }
         }
         Text("Educational market-data viewer. No broker connection or trade execution.", color = Muted, fontSize = 10.sp)
+    }
+}
+
+
+@Composable
+private fun MarketDashboardOverview(
+    stocks: List<Stock>, marketDate: String, advancers: Int, decliners: Int,
+    watchlistCount: Int, onConsole: () -> Unit, onNavigate: (Int) -> Unit, onOpenStock: (Stock) -> Unit
+) {
+    val total = advancers + decliners
+    val breadth = if (total > 0) advancers.toFloat() / total.toFloat() else 0f
+    val mood = when {
+        stocks.isEmpty() -> "WAITING FOR DATA"
+        advancers > decliners -> "POSITIVE BREADTH"
+        decliners > advancers -> "NEGATIVE BREADTH"
+        else -> "MIXED BREADTH"
+    }
+    val topMovers = stocks.sortedByDescending { it.changePercent }.take(3)
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("YOUR MARKET DASHBOARD", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("The market, at a glance.", color = White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(if (marketDate.isBlank()) "Waiting for latest session" else "NSE session · $marketDate", color = Muted, fontSize = 10.sp)
+                }
+                Text("OPEN CONSOLE ↗", color = Mint, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(onClick = onConsole).padding(8.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricCard("ADVANCERS", if (stocks.isEmpty()) "—" else advancers.toString(), Modifier.weight(1f), Gain)
+                MetricCard("DECLINERS", if (stocks.isEmpty()) "—" else decliners.toString(), Modifier.weight(1f), Loss)
+                MetricCard("WATCHLIST", watchlistCount.toString(), Modifier.weight(1f))
+            }
+            Text("MARKET BREADTH · $mood", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Box(Modifier.fillMaxWidth().height(8.dp).background(PanelLight, RoundedCornerShape(8.dp))) {
+                Box(Modifier.fillMaxWidth(breadth.coerceIn(0f, 1f)).height(8.dp).background(Gain, RoundedCornerShape(8.dp)))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("$advancers advancing", color = Gain, fontSize = 9.sp)
+                Text("$decliners declining", color = Loss, fontSize = 9.sp)
+            }
+            Text("QUICK ACCESS", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("Movers" to 2, "Indices" to 3, "Screener" to 8, "Compare" to 10).forEach { (label, tab) ->
+                    Surface(color = PanelLight, shape = RoundedCornerShape(9.dp),
+                        modifier = Modifier.weight(1f).clickable { onNavigate(tab) }) {
+                        Text(label, color = White, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(vertical = 10.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+            }
+            if (topMovers.isNotEmpty()) {
+                Text("TOP POSITIVE MOVERS", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                topMovers.forEach { stock ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpenStock(stock) }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(stock.symbol, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(formatRupees(stock.price), color = Muted, fontSize = 10.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(String.format(Locale.US, "%+.2f%%", stock.changePercent), color = Gain, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarketConsoleScreen(
+    stocks: List<Stock>, marketDate: String, watchlistStocks: List<Stock>,
+    gainers: List<Stock>, losers: List<Stock>, alertsCount: Int,
+    onNavigate: (Int) -> Unit, onOpenStock: (Stock) -> Unit, onRefresh: () -> Unit, loading: Boolean
+) {
+    val advancers = stocks.count { it.change > 0 }
+    val decliners = stocks.count { it.change < 0 }
+    val unchanged = stocks.count { it.change == 0.0 }
+    val total = stocks.size.coerceAtLeast(1)
+    val breadth = if (advancers + decliners > 0) advancers.toFloat() / (advancers + decliners).toFloat() else 0f
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                SectionHeading("UPRIGHT MARKET CONSOLE", "Central control room for your NSE snapshot")
+                Text(if (marketDate.isBlank()) "No session loaded" else "Session · $marketDate", color = Muted, fontSize = 10.sp)
+            }
+            Text(if (loading) "LOADING…" else "↻ REFRESH", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable(enabled = !loading, onClick = onRefresh).padding(9.dp))
+        }
+        Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("MARKET PULSE · END OF DAY", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    MetricCard("ADVANCERS", advancers.toString(), Modifier.weight(1f), Gain)
+                    MetricCard("DECLINERS", decliners.toString(), Modifier.weight(1f), Loss)
+                    MetricCard("UNCHANGED", unchanged.toString(), Modifier.weight(1f))
+                }
+                Text("Advancing breadth: " + String.format(Locale.US, "%.1f%%", breadth * 100) + " · " + stocks.size + " stocks loaded",
+                    color = Muted, fontSize = 10.sp)
+            }
+        }
+        Text("COMMAND SHORTCUTS", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        val shortcuts = listOf(
+            Triple("Watchlists", "Saved symbols · ${watchlistStocks.size}", 1),
+            Triple("Top movers", "Session leaders and laggards", 2),
+            Triple("Indices", "NIFTY 50 and SENSEX", 3),
+            Triple("Sector map", "Heatmap and constituents", 4),
+            Triple("Portfolio", "Local practice tracker", 5),
+            Triple("Alerts", "${alertsCount} saved conditions", 6),
+            Triple("Screener", "Filter the NSE snapshot", 8),
+            Triple("Research", "Fundamentals and news status", 9),
+            Triple("Compare", "Side-by-side stock view", 10)
+        )
+        shortcuts.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { (title, subtitle, tab) ->
+                    val detail = subtitle.replace("${watchlistStocks.size}", watchlistStocks.size.toString()).replace("${alertsCount}", alertsCount.toString())
+                    Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).clickable { onNavigate(tab) }) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(title, color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(detail, color = Muted, fontSize = 9.sp)
+                            Text("OPEN ↗", color = Mint, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("WATCHLIST SNAPSHOT", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("VIEW ALL ↗", color = Muted, fontSize = 9.sp, modifier = Modifier.clickable { onNavigate(1) })
+        }
+        if (watchlistStocks.isEmpty()) Text("No saved watchlist quotes in this session.", color = Muted, fontSize = 10.sp)
+        watchlistStocks.take(5).forEach { stock ->
+            Row(Modifier.fillMaxWidth().clickable { onOpenStock(stock) }.background(Panel, RoundedCornerShape(10.dp)).padding(11.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(stock.symbol, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(formatRupees(stock.price), color = White, fontSize = 10.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(String.format(Locale.US, "%+.2f%%", stock.changePercent),
+                    color = if (stock.changePercent >= 0) Gain else Loss, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).clickable { onNavigate(2) }) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("TOP GAINER", color = Muted, fontSize = 9.sp)
+                    Text(gainers.firstOrNull()?.symbol ?: "—", color = Gain, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(gainers.firstOrNull()?.let { String.format(Locale.US, "%+.2f%%", it.changePercent) } ?: "No quote", color = White, fontSize = 10.sp)
+                }
+            }
+            Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).clickable { onNavigate(2) }) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("TOP LOSER", color = Muted, fontSize = 9.sp)
+                    Text(losers.firstOrNull()?.symbol ?: "—", color = Loss, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(losers.firstOrNull()?.let { String.format(Locale.US, "%+.2f%%", it.changePercent) } ?: "No quote", color = White, fontSize = 10.sp)
+                }
+            }
+        }
+        Text("Console metrics use the loaded EOD snapshot. They are not live indicators or trading recommendations.",
+            color = Muted, fontSize = 9.sp)
     }
 }
 
