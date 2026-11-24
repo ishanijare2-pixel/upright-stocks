@@ -1,6 +1,5 @@
 package com.ishan.uprightstocks
 
-import android.content.Context
 import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -51,6 +50,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -1112,7 +1113,7 @@ private fun CompareScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
 }
 @Composable
 private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding>, onAdd: (String, Double, Double) -> Unit, onRemove: (String) -> Unit) {
-    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     var symbol by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var average by remember { mutableStateOf("") }
@@ -1148,8 +1149,7 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
                             appendLine("${holding.symbol},${holding.quantity},${holding.averagePrice},$latest,$current,$gain,$percent")
                         }
                     }
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Upright Stocks portfolio CSV", csv))
+                    clipboardManager.setText(AnnotatedString(csv))
                 }.padding(8.dp))
         }
         if (holdings.isEmpty()) Text("Allocation will appear when you add holdings.", color = Muted, fontSize = 10.sp)
