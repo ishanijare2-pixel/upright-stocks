@@ -1379,11 +1379,19 @@ private fun ScreenerScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
     var query by remember { mutableStateOf("") }
     var direction by remember { mutableStateOf("All") }
     var minVolume by remember { mutableStateOf("0") }
+    var minPrice by remember { mutableStateOf("") }
+    var maxPrice by remember { mutableStateOf("") }
+    var minMove by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf("Change") }
     val volumeFloor = minVolume.toLongOrNull() ?: 0L
+    val priceFloor = minPrice.toDoubleOrNull() ?: 0.0
+    val priceCeiling = maxPrice.toDoubleOrNull() ?: Double.MAX_VALUE
+    val moveFloor = minMove.toDoubleOrNull() ?: 0.0
     val results = stocks.filter { stock ->
         (stock.symbol.contains(query, true) || stock.company.contains(query, true)) &&
         stock.volume >= volumeFloor &&
+        stock.price >= priceFloor && stock.price <= priceCeiling &&
+        kotlin.math.abs(stock.changePercent) >= moveFloor &&
         when (direction) { "Gainers" -> stock.changePercent > 0; "Losers" -> stock.changePercent < 0; else -> true }
     }.let { list -> when(sort) {
         "Price" -> list.sortedByDescending { it.price }
@@ -1392,18 +1400,30 @@ private fun ScreenerScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
         else -> list.sortedByDescending { it.changePercent }
     } }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        SectionHeading("STOCK SCREENER", "Filter the currently loaded NSE equity snapshot")
+        SectionHeading("STOCK SCREENER", "Build a custom filter for the latest NSE EOD snapshot")
         OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Company or symbol") })
-        OutlinedTextField(minVolume, { minVolume = it.filter(Char::isDigit) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Minimum daily volume") })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(minPrice, { minPrice = it.filter { ch -> ch.isDigit() || ch == '.' } }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("Min price ₹") })
+            OutlinedTextField(maxPrice, { maxPrice = it.filter { ch -> ch.isDigit() || ch == '.' } }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("Max price ₹") })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(minMove, { minMove = it.filter { ch -> ch.isDigit() || ch == '.' } }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("Min move %") })
+            OutlinedTextField(minVolume, { minVolume = it.filter(Char::isDigit) }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("Min volume") })
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             listOf("All", "Gainers", "Losers").forEach { SortChip(it, direction == it) { direction = it } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             listOf("Change", "Price", "Volume", "Symbol").forEach { SortChip(it, sort == it) { sort = it } }
         }
-        Text("${results.size} matching stocks · latest EOD snapshot", color = Muted, fontSize = 10.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${results.size} matching stocks", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("RESET FILTERS", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { query = ""; direction = "All"; minVolume = "0"; minPrice = ""; maxPrice = ""; minMove = ""; sort = "Change" }.padding(8.dp))
+        }
+        Text("Filters apply to the latest available end-of-day snapshot. Minimum move uses absolute percentage change.", color = Muted, fontSize = 9.sp)
         results.take(150).forEach { stock -> StockCard(stock, false, { onOpen(stock) }, {}) }
-        if (results.isEmpty()) Text("No stocks match these filters. Try a lower volume threshold.", color = Muted, fontSize = 11.sp)
+        if (results.isEmpty()) Text("No stocks match these filters. Adjust or reset your criteria.", color = Muted, fontSize = 11.sp)
         if (results.size > 150) Text("Showing first 150 results. Narrow your filters to see more.", color = Muted, fontSize = 10.sp)
     }
 }
