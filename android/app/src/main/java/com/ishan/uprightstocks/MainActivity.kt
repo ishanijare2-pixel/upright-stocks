@@ -1117,7 +1117,25 @@ private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding
                     color = if (pnl >= 0) Gain else Loss, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
-        Text("PORTFOLIO ALLOCATION", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("PORTFOLIO ALLOCATION", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("COPY CSV", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable {
+                    val csv = buildString {
+                        appendLine("Symbol,Quantity,Average Cost,Latest Close,Current Value,Unrealised PnL,PnL Percent")
+                        holdings.forEach { holding ->
+                            val latest = stocks.find { it.symbol == holding.symbol }?.price ?: holding.averagePrice
+                            val invested = holding.averagePrice * holding.quantity
+                            val current = latest * holding.quantity
+                            val gain = current - invested
+                            val percent = if (invested > 0.0) gain / invested * 100.0 else 0.0
+                            appendLine("${holding.symbol},${holding.quantity},${holding.averagePrice},$latest,$current,$gain,$percent")
+                        }
+                    }
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Upright Stocks portfolio CSV", csv))
+                }.padding(8.dp))
+        }
         if (holdings.isEmpty()) Text("Allocation will appear when you add holdings.", color = Muted, fontSize = 10.sp)
         holdings.sortedByDescending { h -> (stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice) * h.quantity }.forEach { h ->
             val currentValue = (stocks.find { it.symbol == h.symbol }?.price ?: h.averagePrice) * h.quantity
