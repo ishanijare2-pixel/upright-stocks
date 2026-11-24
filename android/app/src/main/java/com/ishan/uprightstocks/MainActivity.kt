@@ -1,5 +1,6 @@
 package com.ishan.uprightstocks
 
+import android.content.Context
 import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
