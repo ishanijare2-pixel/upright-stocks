@@ -1492,6 +1492,10 @@ private fun MarketDashboardOverview(
         else -> "MIXED BREADTH"
     }
     val topMovers = stocks.sortedByDescending { it.changePercent }.take(3)
+    val topLosers = stocks.sortedBy { it.changePercent }.take(3)
+    val unchanged = stocks.count { it.changePercent == 0.0 }
+    val totalVolume = stocks.sumOf { it.volume }
+    val averageChange = if (stocks.isNotEmpty()) stocks.map { it.changePercent }.average() else 0.0
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1507,6 +1511,12 @@ private fun MarketDashboardOverview(
                 MetricCard("ADVANCERS", if (stocks.isEmpty()) "—" else advancers.toString(), Modifier.weight(1f), Gain)
                 MetricCard("DECLINERS", if (stocks.isEmpty()) "—" else decliners.toString(), Modifier.weight(1f), Loss)
                 MetricCard("WATCHLIST", watchlistCount.toString(), Modifier.weight(1f))
+            }
+            Text("SESSION SNAPSHOT", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricCard("TOTAL VOLUME", if (stocks.isEmpty()) "—" else String.format(Locale.US, "%,d", totalVolume), Modifier.weight(1f))
+                MetricCard("UNCHANGED", if (stocks.isEmpty()) "—" else unchanged.toString(), Modifier.weight(1f))
+                MetricCard("AVG CHANGE", if (stocks.isEmpty()) "—" else String.format(Locale.US, "%+.2f%%", averageChange), Modifier.weight(1f), if (averageChange >= 0) Gain else Loss)
             }
             Text("MARKET BREADTH · $mood", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             Box(Modifier.fillMaxWidth().height(8.dp).background(PanelLight, RoundedCornerShape(8.dp))) {
@@ -1527,14 +1537,26 @@ private fun MarketDashboardOverview(
                 }
             }
             if (topMovers.isNotEmpty()) {
-                Text("TOP POSITIVE MOVERS", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text("SESSION LEADERS", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 topMovers.forEach { stock ->
-                    Row(Modifier.fillMaxWidth().clickable { onOpenStock(stock) }.padding(vertical = 2.dp),
+                    Row(Modifier.fillMaxWidth().clickable { onOpenStock(stock) }.padding(vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(stock.symbol, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(formatRupees(stock.price), color = Muted, fontSize = 10.sp)
                         Spacer(Modifier.width(8.dp))
                         Text(String.format(Locale.US, "%+.2f%%", stock.changePercent), color = Gain, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            if (topLosers.isNotEmpty()) {
+                Text("SESSION LAGGARDS", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                topLosers.forEach { stock ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpenStock(stock) }.padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(stock.symbol, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(formatRupees(stock.price), color = Muted, fontSize = 10.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(String.format(Locale.US, "%+.2f%%", stock.changePercent), color = Loss, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
