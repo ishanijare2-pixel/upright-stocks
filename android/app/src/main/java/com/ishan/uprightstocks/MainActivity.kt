@@ -1005,6 +1005,22 @@ private fun SectorsScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         SectionHeading("SECTOR PERFORMANCE", "Equal-weight average of selected mapped stocks")
         Text("Indicative calculation, not an official sector index.", color = Muted, fontSize = 10.sp)
+        Text("MARKET HEATMAP", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        grouped.chunked(2).forEach { rowItems ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowItems.forEach { (name, _, average) ->
+                    val intensity = (kotlin.math.abs(average) / 5.0).toFloat().coerceIn(0.12f, 0.48f)
+                    val tileColor = if (average >= 0.0) Gain.copy(alpha = intensity) else Loss.copy(alpha = intensity)
+                    Surface(color = tileColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(name, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text(String.format(Locale.US, "%+.2f%%", average), color = White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
         grouped.forEach { (name, members, average) ->
             Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(13.dp)) {
