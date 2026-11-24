@@ -293,7 +293,7 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Panel, RoundedCornerShape(14.dp)).padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    listOf("Market", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings", "Screener", "Research").forEachIndexed { index, title ->
+                    listOf("Market", "Watchlist", "Movers", "Indices", "Sectors", "Portfolio", "Alerts", "Settings", "Screener", "Research", "Compare").forEachIndexed { index, title ->
                         Surface(
                             modifier = Modifier.clickable { selectedTab = index },
                             color = if (selectedTab == index) Mint else Color.Transparent,
@@ -382,7 +382,8 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                     }, { symbol, kind -> alerts = alerts.filterNot { it.symbol == symbol && it.kind == kind }; saveAlerts(context, alerts) })
                     7 -> SettingsScreen(isLightTheme, onToggleTheme, marketDate)
                     8 -> ScreenerScreen(stocks, { openStock(it) })
-                    else -> ResearchScreen()
+                    9 -> ResearchScreen()
+                    else -> CompareScreen(stocks, { openStock(it) })
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -1042,6 +1043,58 @@ private fun SectorsScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
     }
 }
 
+@Composable
+private fun CompareScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
+    var firstSymbol by remember { mutableStateOf("RELIANCE") }
+    var secondSymbol by remember { mutableStateOf("TCS") }
+    val first = stocks.find { it.symbol.equals(firstSymbol.trim(), true) }
+    val second = stocks.find { it.symbol.equals(secondSymbol.trim(), true) }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionHeading("STOCK COMPARISON", "Compare two NSE stocks using the latest available closing snapshot")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = firstSymbol, onValueChange = { firstSymbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } }, label = { Text("Stock A") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(value = secondSymbol, onValueChange = { secondSymbol = it.uppercase(Locale.US).filter { c -> c.isLetterOrDigit() } }, label = { Text("Stock B") }, singleLine = true, modifier = Modifier.weight(1f))
+        }
+        if (stocks.isEmpty()) {
+            Text("Load market data first to compare stocks.", color = Muted, fontSize = 12.sp)
+        } else if (first == null || second == null) {
+            Text("One or both symbols were not found in the latest NSE snapshot.", color = Loss, fontSize = 11.sp)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(first, second).forEach { stock ->
+                    Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).clickable { onOpen(stock) }) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(stock.symbol, color = Mint, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(stock.company, color = Muted, fontSize = 9.sp, maxLines = 2)
+                            Spacer(Modifier.height(8.dp))
+                            Text(formatRupees(stock.price), color = White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(String.format(Locale.US, "%+.2f%%", stock.changePercent), color = if (stock.changePercent >= 0) Gain else Loss, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            Text("SIDE-BY-SIDE METRICS", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            val rows = listOf(
+                Triple("Previous close", formatRupees(first.previousClose), formatRupees(second.previousClose)),
+                Triple("Open", formatRupees(first.open), formatRupees(second.open)),
+                Triple("Day high", formatRupees(first.high), formatRupees(second.high)),
+                Triple("Day low", formatRupees(first.low), formatRupees(second.low)),
+                Triple("Volume", String.format(Locale.US, "%,d", first.volume), String.format(Locale.US, "%,d", second.volume)),
+                Triple("Session date", first.date, second.date)
+            )
+            rows.forEach { (label, a, b) ->
+                Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                        Text(a, color = White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                        Text(b, color = White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                    }
+                }
+            }
+        }
+        Text("Comparison uses end-of-day values. It is informational only and does not provide investment advice.", color = Muted, fontSize = 10.sp)
+    }
+}
 @Composable
 private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding>, onAdd: (String, Double, Double) -> Unit, onRemove: (String) -> Unit) {
     var symbol by remember { mutableStateOf("") }
