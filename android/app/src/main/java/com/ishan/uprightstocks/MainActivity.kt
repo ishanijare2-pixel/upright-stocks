@@ -1112,6 +1112,7 @@ private fun CompareScreen(stocks: List<Stock>, onOpen: (Stock) -> Unit) {
 }
 @Composable
 private fun PortfolioScreen(stocks: List<Stock>, holdings: List<PortfolioHolding>, onAdd: (String, Double, Double) -> Unit, onRemove: (String) -> Unit) {
+    val context = LocalContext.current
     var symbol by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var average by remember { mutableStateOf("") }
