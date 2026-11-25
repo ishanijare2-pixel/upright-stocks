@@ -82,6 +82,7 @@ private const val WATCHLIST_KEY = "watchlist"
 private const val WATCHLISTS_KEY = "watchlists"
 private const val PORTFOLIO_KEY = "portfolio"
 private const val ALERTS_KEY = "alerts"
+private const val SNAPSHOT_CACHE_KEY = "snapshot_cache"
 private const val THEME_KEY = "light_theme"
 private val DEFAULT_WATCHLIST = setOf(
     "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
@@ -136,7 +137,8 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
     SideEffect { LightThemeState.value = isLightTheme }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var stocks by remember { mutableStateOf(emptyList<Stock>()) }
+    val cachedSnapshot = remember { loadCachedSnapshot(context) }
+    var stocks by remember { mutableStateOf(cachedSnapshot.first) }
     var watchlists by remember { mutableStateOf(loadWatchlists(context)) }
     var activeWatchlist by remember { mutableStateOf("Main") }
     var watchlist by remember { mutableStateOf(watchlists["Main"] ?: loadWatchlist(context)) }
@@ -150,8 +152,11 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
     var history by remember { mutableStateOf(emptyList<PricePoint>()) }
     var loading by remember { mutableStateOf(false) }
     var historyLoading by remember { mutableStateOf(false) }
-    var marketDate by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("Preparing your NSE market dashboard…") }
+    var marketDate by remember { mutableStateOf(cachedSnapshot.second) }
+    var message by remember { mutableStateOf(
+        if (cachedSnapshot.first.isNotEmpty()) "Showing your saved NSE end-of-day snapshot while checking for updates…"
+        else "Preparing your NSE market dashboard…"
+    ) }
 
     fun refresh() {
         scope.launch {
@@ -161,9 +166,14 @@ private fun UprightStocksApp(isLightTheme: Boolean, onToggleTheme: () -> Unit) {
                 val result = StockRepository.fetchLatestSnapshot()
                 stocks = result.first
                 marketDate = result.second
-                message = "End-of-day data loaded. Prices are not live."
+                saveCachedSnapshot(context, result.first, result.second)
+                message = "End-of-day data loaded and saved for offline viewing. Prices are not live."
             } catch (error: Exception) {
-                message = error.message ?: "Could not load market data. Check your internet connection."
+                message = if (stocks.isNotEmpty()) {
+                    "Showing saved EOD data from $marketDate. Update failed: ${error.message ?: \"Check your internet connection.\"}"
+                } else {
+                    error.message ?: "Could not load market data. Check your internet connection."
+                }
             } finally {
                 loading = false
             }
@@ -1719,6 +1729,55 @@ private fun MarketConsoleScreen(
     }
 }
 
+private fun loadCachedSnapshot(context: Context): Pair<List<Stock>, String> {
+    val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(SNAPSHOT_CACHE_KEY, null) ?: return emptyList<Stock>() to ""
+    return try {
+        val root = JSONObject(raw)
+        val array = root.optJSONArray("stocks") ?: return emptyList<Stock>() to ""
+        val cachedStocks = buildList {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val symbol = item.optString("symbol")
+                if (symbol.isBlank()) continue
+                add(Stock(
+                    symbol = symbol,
+                    company = item.optString("company", symbol),
+                    price = item.optDouble("price"),
+                    previousClose = item.optDouble("previousClose"),
+                    open = item.optDouble("open"),
+                    high = item.optDouble("high"),
+                    low = item.optDouble("low"),
+                    volume = item.optLong("volume"),
+                    date = item.optString("date")
+                ))
+            }
+        }
+        cachedStocks to root.optString("marketDate", "")
+    } catch (_: Exception) {
+        emptyList<Stock>() to ""
+    }
+}
+
+private fun saveCachedSnapshot(context: Context, stocks: List<Stock>, marketDate: String) {
+    val root = JSONObject().put("marketDate", marketDate)
+    val array = org.json.JSONArray()
+    stocks.forEach { stock ->
+        array.put(JSONObject()
+            .put("symbol", stock.symbol)
+            .put("company", stock.company)
+            .put("price", stock.price)
+            .put("previousClose", stock.previousClose)
+            .put("open", stock.open)
+            .put("high", stock.high)
+            .put("low", stock.low)
+            .put("volume", stock.volume)
+            .put("date", stock.date))
+    }
+    root.put("stocks", array)
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+        .putString(SNAPSHOT_CACHE_KEY, root.toString()).apply()
+}
 private fun loadWatchlists(context: Context): Map<String, Set<String>> {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val raw = prefs.getString(WATCHLISTS_KEY, null)
